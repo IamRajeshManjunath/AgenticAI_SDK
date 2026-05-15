@@ -1,0 +1,128 @@
+{
+  "workflow_id": "research-and-report-v1",
+  "name": "Research & Report Generation Workflow",
+  "description": "A two-agent workflow: a Researcher agent fetches and synthesizes knowledge, then a Writer agent produces a polished final report. Supports HITL review before the Writer node.",
+
+  "tools": [
+    {
+      "tool_id": "web_search",
+      "type": "built_in",
+      "connection_string": "web_search"
+    },
+    {
+      "tool_id": "calculator",
+      "type": "built_in",
+      "connection_string": "calculator"
+    },
+    {
+      "tool_id": "internal_knowledge_api",
+      "type": "rest_api",
+      "connection_string": "https://api.example.com/knowledge/query",
+      "arguments": {
+        "method": "POST",
+        "auth_header": "Bearer ${INTERNAL_API_KEY}"
+      }
+    }
+  ],
+
+  "rag_sources": [
+    {
+      "rag_id": "company_docs",
+      "vector_db": "qdrant",
+      "connection_uri": "http://localhost:6333",
+      "api_key_env_var": "QDRANT_API_KEY",
+      "embedding_provider": "openai",
+      "embedding_model": "text-embedding-3-small",
+      "collection_name": "company_knowledge_base",
+      "top_k": 5,
+      "similarity_threshold": 0.72
+    }
+  ],
+
+  "agents": [
+    {
+      "agent_id": "researcher",
+      "role": "Senior Research Analyst specializing in technology and business intelligence",
+      "prompt_template": {
+        "template_id": "researcher_prompt_v1",
+        "template_string": "You are conducting deep research on the following topic: {topic}\n\nYour goal is to:\n1. Search for relevant information using available tools\n2. Synthesize findings into structured insights\n3. Identify key themes, data points, and conflicting perspectives\n4. Produce a comprehensive research brief\n\nAlways cite your sources and quantify claims where possible.",
+        "input_variables": ["topic"]
+      },
+      "llm": {
+        "provider": "openai",
+        "model_name": "gpt-4o",
+        "temperature": 0.3,
+        "api_key_env_var": "OPENAI_API_KEY",
+        "max_retries": 3,
+        "request_timeout": 90.0
+      },
+      "tools": ["web_search", "calculator"],
+      "rag_sources": ["company_docs"],
+      "topology": {
+        "orchestration_mode": "agent_driven",
+        "reasoning_steps": [
+          "understand_scope",
+          "gather_information",
+          "cross_reference_sources",
+          "synthesize_findings"
+        ],
+        "max_thought_tokens": 2048,
+        "fallback_strategy": "retry"
+      },
+      "memory": {
+        "execution_memory_type": "episodic",
+        "caching_strategy": "in_memory"
+      }
+    },
+    {
+      "agent_id": "writer",
+      "role": "Expert Technical Writer who transforms research briefs into polished, executive-ready reports",
+      "prompt_template": {
+        "template_id": "writer_prompt_v1",
+        "template_string": "You are writing a comprehensive report based on research findings about: {topic}\n\nStructure your report as follows:\n- Executive Summary (3-5 sentences)\n- Key Findings (bullet points with evidence)\n- Analysis & Implications\n- Recommendations\n- Conclusion\n\nThe report should be {tone} in tone and targeted at {audience}.",
+        "input_variables": ["topic", "tone", "audience"]
+      },
+      "llm": {
+        "provider": "anthropic",
+        "model_name": "claude-sonnet-4-20250514",
+        "temperature": 0.6,
+        "api_key_env_var": "ANTHROPIC_API_KEY",
+        "max_retries": 2,
+        "request_timeout": 120.0
+      },
+      "tools": ["internal_knowledge_api"],
+      "topology": {
+        "orchestration_mode": "model_driven",
+        "max_thought_tokens": 4096,
+        "fallback_strategy": "escalate"
+      },
+      "memory": {
+        "execution_memory_type": "short_term",
+        "window_size": 20,
+        "caching_strategy": "in_memory"
+      }
+    }
+  ],
+
+  "edges": [
+    {
+      "source": "researcher",
+      "target": "writer",
+      "condition": "state[\"next_step\"] != \"halt\"",
+      "routing_middleware": null
+    },
+    {
+      "source": "writer",
+      "target": "__end__",
+      "condition": null
+    }
+  ],
+
+  "hitl": {
+    "interruption_points": ["writer"],
+    "approval_timeout": 1800,
+    "notification_channel": "api_wait"
+  },
+
+  "entry_point": "researcher"
+}
