@@ -28,6 +28,10 @@ class WorkflowState(TypedDict):
             step records emitted by ``create_deep_agent``.
         next_step: Optional routing signal evaluated by conditional edges to
             determine the next node in the graph.
+        middleware_metadata: Carries middleware state across nodes — budget
+            tracker, PII vault references, compression stats, firewall events.
+        trace_id: Links this state to the active observability trace for
+            distributed tracing and metrics correlation.
     """
 
     messages: Annotated[list, add_messages]
@@ -35,3 +39,5 @@ class WorkflowState(TypedDict):
     retrieved_context: list[dict[str, Any]]
     inner_thoughts: list[dict[str, Any]]
     next_step: str | None
+    middleware_metadata: dict[str, Any]
+    trace_id: str | None

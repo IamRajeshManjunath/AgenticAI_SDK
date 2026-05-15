@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from agenticai_sdk.schemas.llm import LLMConfig
 from agenticai_sdk.schemas.memory import MemoryConfig
+from agenticai_sdk.schemas.middleware_config import ConsensusConfig, MiddlewareConfig
 from agenticai_sdk.schemas.prompts import PromptTemplateConfig
 from agenticai_sdk.schemas.topology import DeepAgentTopologyConfig
 
@@ -66,4 +67,16 @@ class AgentNodeConfig(BaseModel):
     sub_agents: list[str] | None = Field(
         default=None,
         description="Optional agent_ids forming a nested sub-graph under this node.",
+    )
+    fallback_llms: list[LLMConfig] | None = Field(
+        default=None,
+        description="Prioritized fallback LLM configs used when the primary LLM fails.",
+    )
+    consensus_config: ConsensusConfig | None = Field(
+        default=None,
+        description="Consensus execution config — spin up parallel instances for high-stakes decisions.",
+    )
+    middleware_config: MiddlewareConfig | None = Field(
+        default=None,
+        description="Per-agent middleware overrides (budget, PII, injection firewall, compression).",
     )

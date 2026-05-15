@@ -19,7 +19,13 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agenticai_sdk.exceptions import AgenticSDKError
+from agenticai_sdk.evaluation.dashboard import observability_router
+from agenticai_sdk.exceptions import (
+    AgenticSDKError,
+    BudgetExceededError,
+    LoopTimeoutError,
+    PromptInjectionDetectedError,
+)
 from agenticai_sdk.gateway.middleware import ExecutionTrackingMiddleware
 from agenticai_sdk.gateway.routes import router
 
@@ -69,7 +75,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
             "configurations into async, resilient, stateful multi-agent DAGs using "
             "LangGraph and DeepAgent cognitive loops."
         ),
-        version="0.1.0",
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -95,6 +101,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
 
     # ── Routes ───────────────────────────────────────────────────────────
     app.include_router(router)
+    app.include_router(observability_router)
 
     # ── Health check ──────────────────────────────────────────────────────
     @app.get(
@@ -104,7 +111,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         description="Returns the current health status of the gateway.",
     )
     async def health_check() -> dict:
-        return {"status": "healthy", "service": "agenticai-sdk", "version": "0.1.0"}
+        return {"status": "healthy", "service": "agenticai-sdk", "version": "0.2.0"}
 
     @app.get(
         "/",
@@ -115,16 +122,42 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     async def root() -> dict:
         return {
             "service": "AgenticAI SDK Gateway",
-            "version": "0.1.0",
+            "version": "0.2.0",
             "docs": "/docs",
             "health": "/health",
             "endpoints": {
                 "run_workflow": "POST /api/v1/workflow/run",
                 "hitl_approve": "POST /api/v1/workflow/hitl/approve",
+                "traces": "GET /api/v1/observability/traces",
+                "metrics": "GET /api/v1/observability/metrics",
+                "prometheus": "GET /api/v1/observability/metrics/prometheus",
+                "evaluations": "GET /api/v1/observability/evaluations/{workflow_id}",
+                "health_detailed": "GET /api/v1/observability/health",
             },
         }
 
     # ── Global exception handlers ─────────────────────────────────────────
+    @app.exception_handler(BudgetExceededError)
+    async def budget_exceeded_handler(request: Request, exc: BudgetExceededError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"error": "BudgetExceeded", "message": str(exc), "detail": exc.detail},
+        )
+
+    @app.exception_handler(LoopTimeoutError)
+    async def loop_timeout_handler(request: Request, exc: LoopTimeoutError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            content={"error": "LoopTimeout", "message": str(exc), "detail": exc.detail},
+        )
+
+    @app.exception_handler(PromptInjectionDetectedError)
+    async def injection_handler(request: Request, exc: PromptInjectionDetectedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"error": "PromptInjectionDetected", "message": str(exc), "detail": exc.detail},
+        )
+
     @app.exception_handler(AgenticSDKError)
     async def agentic_sdk_error_handler(request: Request, exc: AgenticSDKError) -> JSONResponse:
         return JSONResponse(

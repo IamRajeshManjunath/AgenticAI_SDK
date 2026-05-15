@@ -1,7 +1,7 @@
 {
-  "workflow_id": "research-and-report-v1",
-  "name": "Research & Report Generation Workflow",
-  "description": "A two-agent workflow: a Researcher agent fetches and synthesizes knowledge, then a Writer agent produces a polished final report. Supports HITL review before the Writer node.",
+  "workflow_id": "research-and-report-v2",
+  "name": "Research & Report Generation Workflow (v0.2)",
+  "description": "A two-agent workflow with full middleware safety, fallback routing, consensus execution, and observability. Researcher agent fetches and synthesizes knowledge, then Writer agent produces a polished report. Includes budget guardrails, PII masking, prompt injection firewall, context compression, HITL review with Slack notifications, and consensus-based publishing.",
 
   "tools": [
     {
@@ -44,7 +44,7 @@
       "agent_id": "researcher",
       "role": "Senior Research Analyst specializing in technology and business intelligence",
       "prompt_template": {
-        "template_id": "researcher_prompt_v1",
+        "template_id": "researcher_prompt_v2",
         "template_string": "You are conducting deep research on the following topic: {topic}\n\nYour goal is to:\n1. Search for relevant information using available tools\n2. Synthesize findings into structured insights\n3. Identify key themes, data points, and conflicting perspectives\n4. Produce a comprehensive research brief\n\nAlways cite your sources and quantify claims where possible.",
         "input_variables": ["topic"]
       },
@@ -72,13 +72,56 @@
       "memory": {
         "execution_memory_type": "episodic",
         "caching_strategy": "in_memory"
+      },
+      "fallback_llms": [
+        {
+          "provider": "anthropic",
+          "model_name": "claude-sonnet-4-20250514",
+          "temperature": 0.3,
+          "api_key_env_var": "ANTHROPIC_API_KEY",
+          "max_retries": 2,
+          "request_timeout": 90.0
+        },
+        {
+          "provider": "ollama",
+          "model_name": "llama3",
+          "temperature": 0.3,
+          "api_key_env_var": "OLLAMA_KEY",
+          "max_retries": 1,
+          "request_timeout": 120.0
+        }
+      ],
+      "middleware_config": {
+        "budget": {
+          "max_tokens_per_call": 16384,
+          "max_cost_per_workflow": 5.0,
+          "loop_timeout_seconds": 300,
+          "max_loop_iterations": 20
+        },
+        "pii": {
+          "enabled": true,
+          "masking_level": "full",
+          "safe_writeback_agents": []
+        },
+        "injection_firewall": {
+          "enabled": true,
+          "threat_threshold": 0.85,
+          "block_on_detection": true,
+          "allowlisted_patterns": []
+        },
+        "compression": {
+          "max_context_tokens": 12000,
+          "strategy": "truncate",
+          "preserve_system_prompt": true,
+          "summary_max_tokens": 500
+        }
       }
     },
     {
       "agent_id": "writer",
       "role": "Expert Technical Writer who transforms research briefs into polished, executive-ready reports",
       "prompt_template": {
-        "template_id": "writer_prompt_v1",
+        "template_id": "writer_prompt_v2",
         "template_string": "You are writing a comprehensive report based on research findings about: {topic}\n\nStructure your report as follows:\n- Executive Summary (3-5 sentences)\n- Key Findings (bullet points with evidence)\n- Analysis & Implications\n- Recommendations\n- Conclusion\n\nThe report should be {tone} in tone and targeted at {audience}.",
         "input_variables": ["topic", "tone", "audience"]
       },
@@ -100,6 +143,36 @@
         "execution_memory_type": "short_term",
         "window_size": 20,
         "caching_strategy": "in_memory"
+      },
+      "consensus_config": {
+        "enabled": true,
+        "instances": 3,
+        "threshold": 0.66,
+        "varied_temperature_range": [0.3, 0.9]
+      },
+      "middleware_config": {
+        "budget": {
+          "max_tokens_per_call": 32768,
+          "max_cost_per_workflow": 10.0,
+          "loop_timeout_seconds": 600,
+          "max_loop_iterations": 10
+        },
+        "pii": {
+          "enabled": true,
+          "masking_level": "partial",
+          "safe_writeback_agents": ["db_writer"]
+        },
+        "injection_firewall": {
+          "enabled": true,
+          "threat_threshold": 0.80,
+          "block_on_detection": true
+        },
+        "compression": {
+          "max_context_tokens": 24000,
+          "strategy": "summarize",
+          "preserve_system_prompt": true,
+          "summary_max_tokens": 800
+        }
       }
     }
   ],
@@ -121,7 +194,7 @@
   "hitl": {
     "interruption_points": ["writer"],
     "approval_timeout": 1800,
-    "notification_channel": "api_wait"
+    "notification_channel": "slack"
   },
 
   "entry_point": "researcher"

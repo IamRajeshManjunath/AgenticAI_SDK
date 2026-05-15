@@ -84,3 +84,49 @@ class HITLTimeoutError(AgenticSDKError):
 
 class HITLRejectError(AgenticSDKError):
     """Raised when a human reviewer explicitly rejects a workflow step."""
+
+
+class HITLDispatchError(AgenticSDKError):
+    """Raised when a HITL webhook notification dispatch fails."""
+
+
+# ── Middleware ───────────────────────────────────────────────────────────────
+
+class BudgetExceededError(AgenticSDKError):
+    """Raised when a budget guardrail threshold (token or cost) is breached."""
+
+
+class LoopTimeoutError(AgenticSDKError):
+    """Raised when an agent loop exceeds the configured wall-clock time limit."""
+
+
+class PIIMaskingError(AgenticSDKError):
+    """Raised when PII vault encryption, decryption, or masking operation fails."""
+
+
+class PromptInjectionDetectedError(AgenticSDKError):
+    """Raised when adversarial prompt injection is detected in a payload."""
+
+
+class ContextCompressionError(AgenticSDKError):
+    """Raised when a context truncation or compression operation fails."""
+
+
+# ── Orchestration ────────────────────────────────────────────────────────────
+
+class SchemaMapperError(AgenticSDKError):
+    """Raised when dynamic JSON schema normalization or mapping fails."""
+
+
+class ConsensusNotReachedError(AgenticSDKError):
+    """Raised when agent consensus threshold is not met across parallel instances."""
+
+
+class FallbackExhaustedError(AgenticSDKError):
+    """Raised when all fallback LLM providers have been exhausted."""
+
+
+# ── Evaluation ───────────────────────────────────────────────────────────────
+
+class EvaluationError(AgenticSDKError):
+    """Raised when a quality evaluation or metrics computation fails."""

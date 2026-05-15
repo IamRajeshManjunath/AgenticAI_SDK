@@ -18,9 +18,27 @@ Orchestrator
   ├── ToolRegistry       → MCP / REST API / Custom Python / Built-in
   ├── VectorDBClientFactory → Qdrant / Pinecone / PgVector
   ├── KnowledgeRetrieverEngine → async semantic retrieval
-  └── DeepAgentFactory
-        ├── model_driven  → ReAct-style autonomous tool use
-        └── agent_driven  → explicit reasoning step sequences
+  ├── DeepAgentFactory
+  │     ├── model_driven  → ReAct-style autonomous tool use
+  │     └── agent_driven  → explicit reasoning step sequences
+  │
+  ├── MiddlewarePipeline (NEW v0.2)
+  │     ├── BudgetGuardrails     → token/cost estimation & loop timeouts
+  │     ├── PIIMaskingRouter     → PII/PHI detection & reversible masking
+  │     ├── InjectionFirewall    → adversarial prompt detection
+  │     └── ContextCompression   → context window management
+  │
+  ├── Enterprise Orchestration (NEW v0.2)
+  │     ├── SchemaMapperEngine   → dynamic JSON normalization
+  │     ├── HITLBreakpoints      → state freeze/thaw + Slack/Teams webhooks
+  │     ├── FallbackRouter       → LLM provider hot-swapping
+  │     └── ConsensusBroker      → multi-instance majority voting
+  │
+  └── Evaluation & Observability (NEW v0.2)
+        ├── TraceCollector       → distributed span trees
+        ├── MetricsRegistry      → latency/token/cost aggregation
+        ├── QualityEvaluators    → relevance/coherence/groundedness
+        └── Dashboard API        → /api/v1/observability/*
               │
               ▼
         LangGraph StateGraph (compiled DAG)
@@ -28,7 +46,12 @@ Orchestrator
               ▼
         FastAPI Gateway
           ├── POST /api/v1/workflow/run
-          └── POST /api/v1/workflow/hitl/approve
+          ├── POST /api/v1/workflow/hitl/approve
+          ├── GET  /api/v1/observability/traces
+          ├── GET  /api/v1/observability/metrics
+          ├── GET  /api/v1/observability/metrics/prometheus
+          ├── GET  /api/v1/observability/evaluations/{workflow_id}
+          └── GET  /api/v1/observability/health
 ```
 
 ---
@@ -38,35 +61,55 @@ Orchestrator
 ```
 agenticai_sdk/
 ├── __init__.py
-├── exceptions.py               # Domain exception hierarchy
-├── schemas/                    # Pydantic V2 models
-│   ├── llm.py                  # LLMConfig + LLMProvider enum
-│   ├── tools.py                # ToolConfig + ToolType enum
-│   ├── prompts.py              # PromptTemplateConfig (compile-time var validation)
-│   ├── memory.py               # MemoryConfig + enums
-│   ├── hitl.py                 # HITLConfig + NotificationChannel enum
-│   ├── rag.py                  # RAGConfig + VectorDB/Embedding enums
-│   ├── topology.py             # DeepAgentTopologyConfig + OrchestrationMode enum
-│   ├── agent_node.py           # AgentNodeConfig (composite)
-│   ├── edges.py                # EdgeConfig (conditional routing)
-│   └── workflow.py             # WorkflowSchema (root + referential integrity)
+├── exceptions.py                    # Domain exception hierarchy (expanded v0.2)
+├── schemas/                         # Pydantic V2 models
+│   ├── llm.py                       # LLMConfig + LLMProvider enum
+│   ├── tools.py                     # ToolConfig + ToolType enum
+│   ├── prompts.py                   # PromptTemplateConfig
+│   ├── memory.py                    # MemoryConfig + enums
+│   ├── hitl.py                      # HITLConfig + NotificationChannel enum
+│   ├── rag.py                       # RAGConfig + VectorDB/Embedding enums
+│   ├── topology.py                  # DeepAgentTopologyConfig
+│   ├── middleware_config.py         # MiddlewareConfig + Budget/PII/Firewall/Compression/Consensus (NEW)
+│   ├── agent_node.py               # AgentNodeConfig (+ fallback_llms, consensus_config, middleware_config)
+│   ├── edges.py                     # EdgeConfig (conditional routing)
+│   └── workflow.py                  # WorkflowSchema (root + referential integrity)
 ├── state/
-│   └── workflow_state.py       # WorkflowState TypedDict
+│   └── workflow_state.py            # WorkflowState TypedDict (+ middleware_metadata, trace_id)
 ├── rag/
-│   ├── vector_db_factory.py    # VectorDBClientFactory
-│   ├── retriever_engine.py     # KnowledgeRetrieverEngine
-│   └── context_injector.py     # ContextInjector
+│   ├── vector_db_factory.py         # VectorDBClientFactory
+│   ├── retriever_engine.py          # KnowledgeRetrieverEngine
+│   └── context_injector.py          # ContextInjector
 ├── deep_agent/
-│   └── factory.py              # DeepAgentFactory + create_deep_agent
+│   └── factory.py                   # DeepAgentFactory + create_deep_agent
 ├── runtime/
-│   ├── llm_factory.py          # LLMClientFactory
-│   ├── tool_registry.py        # ToolRegistry
-│   ├── context_engine.py       # ContextEngine
-│   └── orchestrator.py         # Orchestrator (core compilation engine)
+│   ├── llm_factory.py               # LLMClientFactory
+│   ├── tool_registry.py             # ToolRegistry
+│   ├── context_engine.py            # ContextEngine
+│   └── orchestrator.py              # Orchestrator (now with middleware/fallback/consensus/tracing)
+├── middleware/                       # NEW v0.2 — Execution Safety Layer
+│   ├── __init__.py
+│   ├── base.py                      # MiddlewareBase, MiddlewareContext, MiddlewarePipeline
+│   ├── budget_guardrails.py         # Token/cost estimation, loop timeouts
+│   ├── pii_masking.py               # PII/PHI detection, reversible masking, vault
+│   ├── prompt_injection_firewall.py # Pattern + semantic injection detection
+│   └── context_compression.py       # Truncation, summarization, schema dropping
+├── orchestration/                    # NEW v0.2 — Enterprise Coordination
+│   ├── __init__.py
+│   ├── schema_mapper.py             # Dynamic JSON schema normalization
+│   ├── hitl_breakpoints.py          # State freeze/thaw, Slack/Teams webhooks
+│   ├── fallback_router.py           # LLM hot-swapping without state loss
+│   └── consensus_broker.py          # Multi-instance consensus voting
+├── evaluation/                       # NEW v0.2 — Observability Suite
+│   ├── __init__.py
+│   ├── trace_collector.py           # Distributed span tree tracing
+│   ├── metrics.py                   # Latency/token/cost/error aggregation
+│   ├── evaluators.py                # Response quality + workflow evaluation
+│   └── dashboard.py                 # FastAPI observability API endpoints
 └── gateway/
-    ├── middleware.py            # ExecutionTrackingMiddleware
-    ├── routes.py               # FastAPI route handlers
-    └── app.py                  # App factory + structlog config
+    ├── middleware.py                 # ExecutionTrackingMiddleware
+    ├── routes.py                    # FastAPI route handlers
+    └── app.py                       # App factory + structlog config
 ```
 
 ---
@@ -88,6 +131,10 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Vector DB (optional — mock client used if not set)
 export QDRANT_API_KEY="your-qdrant-key"
+
+# HITL Webhooks (optional)
+export HITL_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+export HITL_TEAMS_WEBHOOK_URL="https://outlook.office.com/webhook/..."
 ```
 
 ### 3. Start the Gateway
@@ -124,6 +171,130 @@ curl -X POST http://localhost:8000/api/v1/workflow/hitl/approve \
 
 ---
 
+## Middleware & Safety (v0.2)
+
+### Semantic Budget & Cost Guardrails
+Pre-calculates token/dollar estimates before API calls. Enforces per-call token limits, cumulative workflow cost caps, loop iteration guards, and wall-clock timeouts.
+
+```json
+{
+  "middleware_config": {
+    "budget": {
+      "max_tokens_per_call": 8192,
+      "max_cost_per_workflow": 5.0,
+      "loop_timeout_seconds": 300,
+      "max_loop_iterations": 20
+    }
+  }
+}
+```
+
+### State-Aware PII Masking Router
+Detects and masks credit cards (Luhn-validated), SSNs, emails, phone numbers, passport IDs, and medical record numbers. Supports reversible token vault for safe database write-back.
+
+```json
+{
+  "pii": {
+    "enabled": true,
+    "masking_level": "full",
+    "safe_writeback_agents": ["db_writer"]
+  }
+}
+```
+
+### Dynamic Prompt Injection Firewall
+Dual detection: regex pattern matching for known injection techniques + optional semantic similarity against adversarial prompt examples.
+
+```json
+{
+  "injection_firewall": {
+    "enabled": true,
+    "threat_threshold": 0.85,
+    "block_on_detection": true
+  }
+}
+```
+
+### Context Truncation & Memory Compression
+Monitors context window saturation and applies compression: sliding-window truncation, extractive summarization, or tool schema dropping.
+
+```json
+{
+  "compression": {
+    "max_context_tokens": 12000,
+    "strategy": "summarize",
+    "preserve_system_prompt": true
+  }
+}
+```
+
+---
+
+## Enterprise Orchestration (v0.2)
+
+### Dynamic Schema Mapping Engine
+Fuzzy-matches and normalizes upstream API payload field names. Handles camelCase → snake_case, typos, and renamed fields. Optional LLM-assisted resolution for complex transformations.
+
+### Human-in-the-Loop Breakpoints
+Freezes execution state to disk and dispatches structured approval requests via:
+- **Slack** — Block Kit messages with approve/reject buttons
+- **MS Teams** — Adaptive Cards with action buttons
+- **Generic Webhooks** — JSON POST payloads
+- **API Wait** — Polling-based approval via REST endpoint
+
+### Fallback & Model-Swapping Router
+Dynamically swaps LLM providers mid-execution on failure (timeout, rate-limit, API error). Preserves full message history and scratchpad across swaps.
+
+```json
+{
+  "fallback_llms": [
+    { "provider": "anthropic", "model_name": "claude-sonnet-4-20250514", "api_key_env_var": "ANTHROPIC_API_KEY" },
+    { "provider": "ollama", "model_name": "llama3", "api_key_env_var": "OLLAMA_KEY" }
+  ]
+}
+```
+
+### Agent-to-Agent Consensus Broker
+Spins up N parallel agent instances with varied system prompts (temperature variations). Executes downstream changes only upon majority consensus. Configurable agreement threshold.
+
+```json
+{
+  "consensus_config": {
+    "enabled": true,
+    "instances": 3,
+    "threshold": 0.66,
+    "varied_temperature_range": [0.2, 0.9]
+  }
+}
+```
+
+---
+
+## Evaluation & Observability (v0.2)
+
+### Distributed Tracing
+Every workflow execution generates a hierarchical span tree capturing agent nodes, tool calls, middleware passes, and RAG retrievals with precise timing and token counts.
+
+### Metrics Registry
+Thread-safe aggregation of latency histograms (avg, p95, p99), token usage by agent, cost by provider, error counts by type, and middleware events. Exports to Prometheus text format.
+
+### Quality Evaluators
+- **Relevance**: Query-response term overlap with TF-IDF weighting
+- **Coherence**: Vocabulary richness, sentence structure, structural markers
+- **Groundedness**: Response alignment with retrieved RAG source documents
+
+### Dashboard API
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/observability/traces` | List recent traces |
+| `GET /api/v1/observability/traces/{id}` | Full trace detail |
+| `GET /api/v1/observability/metrics` | Metrics summary (JSON) |
+| `GET /api/v1/observability/metrics/prometheus` | Prometheus export |
+| `GET /api/v1/observability/evaluations/{wf_id}` | Quality evaluations |
+| `GET /api/v1/observability/health` | Extended health check |
+
+---
+
 ## Core Concepts
 
 ### WorkflowSchema
@@ -133,16 +304,20 @@ The single source of truth. Author a JSON file that defines:
 - **Agent nodes** with LLM configs, prompts, topology, and memory
 - **Edges** with optional condition expressions
 - **HITL** interruption points
+- **Middleware config** (budget, PII, firewall, compression)
+- **Fallback LLMs** and **Consensus config** per agent
 
 ### WorkflowState
 Every node receives and returns a `WorkflowState` TypedDict:
 ```python
 {
-    "messages":          [...],   # Full message history (add_messages accumulator)
-    "scratchpad":        {...},   # Cross-agent key-value store
-    "retrieved_context": [...],   # RAG documents pulled across steps
-    "inner_thoughts":    [...],   # Chain-of-thought reasoning traces
-    "next_step":         "..."    # Routing signal for conditional edges
+    "messages":             [...],   # Full message history (add_messages accumulator)
+    "scratchpad":           {...},   # Cross-agent key-value store
+    "retrieved_context":    [...],   # RAG documents pulled across steps
+    "inner_thoughts":       [...],   # Chain-of-thought reasoning traces
+    "next_step":            "...",   # Routing signal for conditional edges
+    "middleware_metadata":  {...},   # Budget/PII/firewall state across nodes
+    "trace_id":             "...",   # Active observability trace ID
 }
 ```
 
@@ -195,7 +370,17 @@ Resume via `POST /api/v1/workflow/hitl/approve` with `{ "approved": true }`.
 | `DeepAgentExecutionError` | Inner cognitive loop fatal error |
 | `DeepAgentFallbackExhausted` | All fallback strategies exhausted |
 | `HITLTimeoutError` | Human approval timeout exceeded |
+| `HITLDispatchError` | Webhook notification dispatch failure |
 | `GraphRoutingError` | Conditional edge evaluation failure |
+| `BudgetExceededError` | Token or cost budget threshold breached |
+| `LoopTimeoutError` | Agent loop exceeded time/iteration limit |
+| `PIIMaskingError` | PII vault encryption/masking failure |
+| `PromptInjectionDetectedError` | Adversarial prompt detected |
+| `ContextCompressionError` | Context compression operation failure |
+| `SchemaMapperError` | JSON schema normalization failure |
+| `ConsensusNotReachedError` | Agent consensus threshold not met |
+| `FallbackExhaustedError` | All fallback LLM providers exhausted |
+| `EvaluationError` | Quality evaluation computation failure |
 
 ---
 

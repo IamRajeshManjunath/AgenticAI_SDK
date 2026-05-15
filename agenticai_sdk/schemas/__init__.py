@@ -7,6 +7,16 @@ from agenticai_sdk.schemas.memory import CachingStrategy, ExecutionMemoryType, M
 from agenticai_sdk.schemas.hitl import HITLConfig, NotificationChannel
 from agenticai_sdk.schemas.rag import EmbeddingProvider, RAGConfig, VectorDBProvider
 from agenticai_sdk.schemas.topology import DeepAgentTopologyConfig, FallbackStrategy, OrchestrationMode
+from agenticai_sdk.schemas.middleware_config import (
+    BudgetConfig,
+    CompressionConfig,
+    CompressionStrategy,
+    ConsensusConfig,
+    InjectionFirewallConfig,
+    MaskingLevel,
+    MiddlewareConfig,
+    PIIConfig,
+)
 from agenticai_sdk.schemas.agent_node import AgentNodeConfig
 from agenticai_sdk.schemas.edges import EdgeConfig
 from agenticai_sdk.schemas.workflow import WorkflowSchema
@@ -28,6 +38,14 @@ __all__ = [
     "DeepAgentTopologyConfig",
     "OrchestrationMode",
     "FallbackStrategy",
+    "MiddlewareConfig",
+    "BudgetConfig",
+    "PIIConfig",
+    "MaskingLevel",
+    "InjectionFirewallConfig",
+    "CompressionConfig",
+    "CompressionStrategy",
+    "ConsensusConfig",
     "AgentNodeConfig",
     "EdgeConfig",
     "WorkflowSchema",

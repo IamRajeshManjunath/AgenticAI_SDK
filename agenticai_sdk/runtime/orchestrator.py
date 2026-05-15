@@ -10,11 +10,19 @@ LangGraph StateGraph application:
   4. Registers conditional edge routing from EdgeConfig expressions
   5. Attaches InMemorySaver checkpointer for HITL state persistence
   6. Returns a fully compiled, executable graph application
+
+Additionally integrates:
+  - MiddlewarePipeline (budget, PII, injection firewall, compression)
+  - FallbackRouter for automatic LLM failover
+  - ConsensusBroker for multi-instance consensus execution
+  - TraceCollector for distributed execution tracing
+  - MetricsRegistry for runtime metrics aggregation
 """
 
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -23,11 +31,21 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from agenticai_sdk.deep_agent.factory import DeepAgentFactory
+from agenticai_sdk.evaluation.metrics import MetricsRegistry
+from agenticai_sdk.evaluation.trace_collector import TraceCollector
 from agenticai_sdk.exceptions import (
     GraphRoutingError,
     RAGFetchException,
     WorkflowCompilationError,
 )
+from agenticai_sdk.middleware.base import MiddlewareContext, MiddlewarePipeline
+from agenticai_sdk.middleware.budget_guardrails import BudgetGuardrailsMiddleware
+from agenticai_sdk.middleware.context_compression import ContextCompressionMiddleware
+from agenticai_sdk.middleware.pii_masking import PIIMaskingMiddleware
+from agenticai_sdk.middleware.prompt_injection_firewall import PromptInjectionFirewallMiddleware
+from agenticai_sdk.orchestration.consensus_broker import ConsensusBroker
+from agenticai_sdk.orchestration.fallback_router import FallbackRouter
+from agenticai_sdk.orchestration.schema_mapper import SchemaMapperEngine
 from agenticai_sdk.rag.context_injector import ContextInjector
 from agenticai_sdk.rag.retriever_engine import KnowledgeRetrieverEngine
 from agenticai_sdk.rag.vector_db_factory import VectorDBClientFactory
@@ -48,6 +66,9 @@ class Orchestrator:
     """Macro-execution engine that compiles a ``WorkflowSchema`` into a
     runnable LangGraph application.
 
+    Integrates middleware pipeline, fallback routing, consensus execution,
+    distributed tracing, and metrics collection.
+
     Usage::
 
         orchestrator = Orchestrator()
@@ -62,6 +83,37 @@ class Orchestrator:
         self._vector_db_factory = VectorDBClientFactory()
         self._deep_agent_factory = DeepAgentFactory()
         self._checkpointer = MemorySaver()
+        self._fallback_router = FallbackRouter()
+        self._consensus_broker = ConsensusBroker()
+        self._schema_mapper = SchemaMapperEngine()
+        self._trace_collector = TraceCollector()
+        self._metrics = MetricsRegistry()
+
+    def _build_middleware_pipeline(
+        self, agent_config: AgentNodeConfig
+    ) -> MiddlewarePipeline:
+        """Build a middleware pipeline for an agent node, using per-agent
+        overrides if available, otherwise using defaults."""
+        mw_config = agent_config.middleware_config
+        pipeline = MiddlewarePipeline()
+
+        # Budget guardrails
+        budget_cfg = mw_config.budget if mw_config else None
+        pipeline.add(BudgetGuardrailsMiddleware(config=budget_cfg))
+
+        # PII masking
+        pii_cfg = mw_config.pii if mw_config else None
+        pipeline.add(PIIMaskingMiddleware(config=pii_cfg))
+
+        # Prompt injection firewall
+        fw_cfg = mw_config.injection_firewall if mw_config else None
+        pipeline.add(PromptInjectionFirewallMiddleware(config=fw_cfg))
+
+        # Context compression
+        comp_cfg = mw_config.compression if mw_config else None
+        pipeline.add(ContextCompressionMiddleware(config=comp_cfg))
+
+        return pipeline
 
     async def compile(self, schema: WorkflowSchema) -> Any:
         """Compile the WorkflowSchema into an executable LangGraph application.
@@ -92,7 +144,7 @@ class Orchestrator:
             hitl_interrupt_nodes: list[str] = schema.hitl.interruption_points
 
             for agent_config in schema.agents:
-                node_callable = await self._build_node(agent_config, rag_retriever_map)
+                node_callable = await self._build_node(agent_config, rag_retriever_map, schema)
                 graph.add_node(agent_config.agent_id, node_callable)
                 log.debug("graph_node_registered", node=agent_config.agent_id)
 
@@ -131,8 +183,17 @@ class Orchestrator:
         self,
         agent_config: AgentNodeConfig,
         rag_retriever_map: dict[str, KnowledgeRetrieverEngine],
+        schema: WorkflowSchema,
     ) -> Callable[[WorkflowState], dict[str, Any]]:
-        """Build a single LangGraph node callable for an agent node config."""
+        """Build a single LangGraph node callable for an agent node config.
+
+        Wraps the inner DeepAgent runner with:
+          - Middleware pipeline (before/after hooks)
+          - Fallback routing (LLM failover)
+          - Consensus execution (multi-instance agreement)
+          - Trace span collection
+          - Metrics recording
+        """
 
         # Resolve LLM
         resolved_llm = self._llm_factory.create(agent_config.llm)
@@ -165,65 +226,166 @@ class Orchestrator:
             if rid in rag_retriever_map
         }
 
+        # Build middleware pipeline for this agent
+        middleware_pipeline = self._build_middleware_pipeline(agent_config)
+
+        # Capture references for closure
+        fallback_router = self._fallback_router
+        consensus_broker = self._consensus_broker
+        deep_agent_factory = self._deep_agent_factory
+        trace_collector = self._trace_collector
+        metrics_registry = self._metrics
+        workflow_id = schema.workflow_id
+
+        # Check if consensus is enabled for this agent
+        use_consensus = (
+            agent_config.consensus_config is not None
+            and agent_config.consensus_config.enabled
+        )
+
+        # Check if fallback routing is enabled
+        use_fallback = bool(agent_config.fallback_llms)
+
         # Create the inner deep-agent callable
-        inner_runner = self._deep_agent_factory.create_deep_agent(
+        inner_runner = deep_agent_factory.create_deep_agent(
             config=agent_config,
             resolved_llm=resolved_llm,
             resolved_tools=resolved_tools,
             retrieved_docs=retrieved_docs,
         )
 
-        # Wrap with runtime RAG retrieval
-        async def node_with_rag(state: WorkflowState) -> dict[str, Any]:
-            runtime_docs: list[Any] = []
-            new_retrieved_context: list[dict[str, Any]] = list(state.get("retrieved_context", []))
+        async def node_with_middleware(state: WorkflowState) -> dict[str, Any]:
+            """Wrapped node with middleware, fallback, consensus, and tracing."""
+            agent_id = agent_config.agent_id
+            start_ts = time.perf_counter()
 
-            if rag_sources_for_agent:
-                # Extract current user query from last human message
-                query = _extract_latest_query(state)
-                for rag_id, retriever in rag_sources_for_agent.items():
-                    try:
-                        # Find matching RAGConfig for this retriever
-                        # (we pass a minimal config inline for the query)
-                        from agenticai_sdk.schemas.rag import RAGConfig  # noqa: PLC0415
+            # ── Start trace span ──────────────────────────────────────
+            trace_id = state.get("trace_id")
+            trace_ctx = trace_collector.get_trace(trace_id) if trace_id else None
+            span_id = None
+            if trace_ctx:
+                span_id = trace_ctx.add_span(
+                    name=f"agent:{agent_id}",
+                    span_type="agent",
+                    metadata={"agent_id": agent_id, "model": agent_config.llm.model_name},
+                )
 
-                        docs = await retriever.retrieve_context(
-                            query=query,
-                            config=_get_rag_config_for_retriever(retriever),
-                        )
-                        runtime_docs.extend(docs)
-                        new_retrieved_context.extend(ContextInjector.format_as_dicts(docs))
-                        logger.debug(
-                            "runtime_rag_retrieved",
-                            agent_id=agent_config.agent_id,
-                            rag_id=rag_id,
-                            doc_count=len(docs),
-                        )
-                    except RAGFetchException as exc:
-                        logger.warning(
-                            "runtime_rag_failed",
-                            agent_id=agent_config.agent_id,
-                            rag_id=rag_id,
-                            error=str(exc),
-                        )
+            try:
+                # ── Runtime RAG retrieval ─────────────────────────────
+                runtime_docs: list[Any] = []
+                new_retrieved_context: list[dict[str, Any]] = list(state.get("retrieved_context", []))
 
-            # Run the deep agent with runtime docs injected
-            inner_runner_with_docs = self._deep_agent_factory.create_deep_agent(
-                config=agent_config,
-                resolved_llm=resolved_llm,
-                resolved_tools=resolved_tools,
-                retrieved_docs=runtime_docs if runtime_docs else retrieved_docs,
-            )
-            result = await inner_runner_with_docs(state)
-            result["retrieved_context"] = new_retrieved_context
-            return result
+                if rag_sources_for_agent:
+                    query = _extract_latest_query(state)
+                    for rag_id, retriever in rag_sources_for_agent.items():
+                        try:
+                            from agenticai_sdk.schemas.rag import RAGConfig  # noqa: PLC0415
 
-        # Return plain node if no RAG, wrapped node otherwise
-        if rag_sources_for_agent:
-            node_with_rag.__name__ = f"node_{agent_config.agent_id}"
-            return node_with_rag
-        else:
-            return inner_runner
+                            docs = await retriever.retrieve_context(
+                                query=query,
+                                config=_get_rag_config_for_retriever(retriever),
+                            )
+                            runtime_docs.extend(docs)
+                            new_retrieved_context.extend(ContextInjector.format_as_dicts(docs))
+                            logger.debug(
+                                "runtime_rag_retrieved",
+                                agent_id=agent_id,
+                                rag_id=rag_id,
+                                doc_count=len(docs),
+                            )
+                        except RAGFetchException as exc:
+                            logger.warning(
+                                "runtime_rag_failed",
+                                agent_id=agent_id,
+                                rag_id=rag_id,
+                                error=str(exc),
+                            )
+
+                # ── Build middleware context ───────────────────────────
+                mw_context = MiddlewareContext(
+                    payload=dict(state),
+                    metadata=state.get("middleware_metadata", {}),
+                    state=dict(state),
+                    agent_id=agent_id,
+                    workflow_id=workflow_id,
+                    trace_id=trace_id,
+                )
+                mw_context.metadata["model_name"] = agent_config.llm.model_name
+
+                # ── Run before-middleware ──────────────────────────────
+                mw_context = await middleware_pipeline.run_before(mw_context)
+
+                # ── Execute agent (with fallback / consensus) ─────────
+                effective_docs = runtime_docs if runtime_docs else retrieved_docs
+
+                if use_consensus:
+                    # Consensus execution
+                    consensus_result = await consensus_broker.execute_consensus(
+                        agent_config=agent_config,
+                        state=state,
+                        runner_factory=deep_agent_factory,
+                        resolved_llm=resolved_llm,
+                        resolved_tools=resolved_tools,
+                        retrieved_docs=effective_docs,
+                    )
+                    result = consensus_broker.execute_if_consensus(consensus_result)
+                    mw_context.metadata["consensus"] = {
+                        "agreed": consensus_result.agreed,
+                        "confidence": consensus_result.confidence,
+                        "instances": len(consensus_result.all_responses),
+                    }
+                elif use_fallback:
+                    # Fallback routing
+                    result = await fallback_router.execute_with_fallback(
+                        agent_config=agent_config,
+                        state=state,
+                        runner_factory=deep_agent_factory,
+                        primary_llm=resolved_llm,
+                        resolved_tools=resolved_tools,
+                        retrieved_docs=effective_docs,
+                    )
+                else:
+                    # Standard execution
+                    current_runner = deep_agent_factory.create_deep_agent(
+                        config=agent_config,
+                        resolved_llm=resolved_llm,
+                        resolved_tools=resolved_tools,
+                        retrieved_docs=effective_docs,
+                    )
+                    result = await current_runner(state)
+
+                # ── Run after-middleware ───────────────────────────────
+                mw_context.payload = result
+                mw_context = await middleware_pipeline.run_after(mw_context)
+                result = mw_context.payload
+
+                # ── Merge middleware metadata and RAG context ─────────
+                result["retrieved_context"] = new_retrieved_context
+                result["middleware_metadata"] = mw_context.metadata
+
+                # ── Record metrics ────────────────────────────────────
+                elapsed_ms = round((time.perf_counter() - start_ts) * 1000, 2)
+                metrics_registry.record_latency("deep_agent", agent_id, elapsed_ms)
+                metrics_registry.record_middleware_event(
+                    "pipeline", "execution_complete",
+                    {"agent_id": agent_id, "elapsed_ms": elapsed_ms},
+                )
+
+                # ── End trace span ────────────────────────────────────
+                if trace_ctx and span_id:
+                    trace_ctx.end_span(span_id, result={"elapsed_ms": elapsed_ms})
+
+                return result
+
+            except Exception as exc:
+                elapsed_ms = round((time.perf_counter() - start_ts) * 1000, 2)
+                metrics_registry.record_error("deep_agent", type(exc).__name__, str(exc))
+                if trace_ctx and span_id:
+                    trace_ctx.end_span(span_id, error=str(exc))
+                raise
+
+        node_with_middleware.__name__ = f"node_{agent_config.agent_id}"
+        return node_with_middleware
 
     # ── Edge wiring ───────────────────────────────────────────────────────────
 
@@ -359,7 +521,7 @@ class Orchestrator:
 
 # Whitelist of allowed expression patterns to prevent arbitrary code execution
 _SAFE_CONDITION_PATTERN = re.compile(
-    r"""^[\w\s\[\]\"'\.=!<>(){},:+\-*/|&~%]+$"""
+    r"""^[\w\s\[\]\"'\\.=!<>(){},:+\-*/|&~%]+$"""
 )
 
 

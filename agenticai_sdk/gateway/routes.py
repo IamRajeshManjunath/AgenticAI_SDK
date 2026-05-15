@@ -138,6 +138,8 @@ async def run_workflow(request_body: WorkflowRunRequest, request: Request) -> Wo
             "retrieved_context": [],
             "inner_thoughts": [],
             "next_step": None,
+            "middleware_metadata": {},
+            "trace_id": None,
         }
 
         # Execute the graph
@@ -155,6 +157,8 @@ async def run_workflow(request_body: WorkflowRunRequest, request: Request) -> Wo
                 "retrieved_context": [],
                 "inner_thoughts": [],
                 "next_step": None,
+                "middleware_metadata": {},
+                "trace_id": None,
             }
 
         log.info("workflow_run_complete", status=exec_status)
