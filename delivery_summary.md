@@ -1,132 +1,112 @@
 # AgenticAI SDK — Delivery Summary
 
-## ✅ Test Results: 48/48 PASSED
+## ✅ Test Results: 50/50 PASSED (v0.2.0)
 
 ```
-======================== 48 passed, 1 warning in 0.77s ========================
+========================= 50 passed in 0.42s =========================
 ```
 
 ---
 
-## Complete File Tree
+## Updated File Tree (v0.2.0)
 
 ```
 AgenticAI_SDK/
 ├── pyproject.toml                   ← setuptools build, all deps pinned
 ├── pytest.ini                       ← asyncio_mode = auto
 ├── main.py                          ← uvicorn entrypoint (main:app)
-├── example_workflow.json            ← Research & Report 2-agent demo
-├── README.md                        ← Full documentation
+├── example_workflow.json            ← v2 Research & Report demo (Fallback + Consensus)
+├── README.md                        ← Full documentation (v0.2.0)
 ├── .env.example                     ← API key template
 │
 ├── agenticai_sdk/
-│   ├── __init__.py                  ← version = "0.1.0"
-│   ├── exceptions.py                ← 12 domain exceptions
+│   ├── __init__.py                  ← version = "0.2.0"
+│   ├── exceptions.py                ← 21 domain exceptions (expanded)
 │   │
 │   ├── schemas/                     ← Domain 1: Pydantic V2
-│   │   ├── llm.py                   LLMConfig + LLMProvider enum
-│   │   ├── tools.py                 ToolConfig + ToolType enum
-│   │   ├── prompts.py               PromptTemplateConfig (cross-validates vars)
-│   │   ├── memory.py                MemoryConfig + enums
-│   │   ├── hitl.py                  HITLConfig + NotificationChannel enum
-│   │   ├── rag.py                   RAGConfig + VectorDB/Embedding enums
-│   │   ├── topology.py              DeepAgentTopologyConfig + OrchestrationMode
-│   │   ├── agent_node.py            AgentNodeConfig (composite root)
-│   │   ├── edges.py                 EdgeConfig (conditional routing)
-│   │   └── workflow.py              WorkflowSchema (root + referential integrity)
+│   │   ├── middleware_config.py     NEW: Budget/PII/Firewall/Compression
+│   │   ├── agent_node.py            Updated with Fallback/Consensus/Middleware
+│   │   └── workflow.py              Updated WorkflowSchema
 │   │
-│   ├── state/
-│   │   └── workflow_state.py        WorkflowState TypedDict + add_messages
+│   ├── middleware/                  ← Domain 6: Execution Safety (NEW)
+│   │   ├── base.py                  Middleware Pipeline Base
+│   │   ├── budget_guardrails.py     Token/Cost/Loop limits
+│   │   ├── pii_masking.py           Reversible PII vault
+│   │   ├── prompt_injection_firewall.py
+│   │   └── context_compression.py
 │   │
-│   ├── rag/                         ← Domain 2: Knowledge Retrieval
-│   │   ├── vector_db_factory.py     VectorDBClientFactory (Qdrant/Pinecone/PgVector)
-│   │   ├── retriever_engine.py      KnowledgeRetrieverEngine (async + threshold filter)
-│   │   └── context_injector.py      ContextInjector (text blocks + dict serialiser)
+│   ├── orchestration/               ← Domain 7: Enterprise Coordination (NEW)
+│   │   ├── schema_mapper.py         Fuzzy JSON normalization
+│   │   ├── hitl_breakpoints.py      Slack/Teams/Webhook dispatch
+│   │   ├── fallback_router.py       LLM failover routing
+│   │   └── consensus_broker.py      Multi-instance agreement
 │   │
-│   ├── deep_agent/                  ← Domain 3: Inner Cognitive Loop
-│   │   └── factory.py               DeepAgentFactory + create_deep_agent()
-│   │                                  ├── model_driven (ReAct, parallel tool calls)
-│   │                                  ├── agent_driven (explicit step sequences)
-│   │                                  └── fallback (retry/escalate/halt)
+│   ├── evaluation/                  ← Domain 8: Observability Suite (NEW)
+│   │   ├── trace_collector.py       Distributed span tracing
+│   │   ├── metrics.py               Prometheus metrics registry
+│   │   ├── evaluators.py            NLP quality metrics
+│   │   └── dashboard.py             Observability API endpoints
 │   │
 │   ├── runtime/                     ← Domain 4: Executive Runtime
-│   │   ├── llm_factory.py           LLMClientFactory (OpenAI/Anthropic/Ollama)
-│   │   ├── tool_registry.py         ToolRegistry (MCP/REST/Python/built-in)
-│   │   ├── context_engine.py        ContextEngine (prompt render + memory window)
-│   │   └── orchestrator.py          Orchestrator (core compilation engine)
+│   │   └── orchestrator.py          Updated compilation core
 │   │
 │   └── gateway/                     ← Domain 5: FastAPI
-│       ├── middleware.py             ExecutionTrackingMiddleware
-│       ├── routes.py                POST /workflow/run, POST /hitl/approve
-│       └── app.py                   create_app() factory + structlog + CORS
+│       ├── routes.py                Updated with Dashboard routes
+│       └── app.py                   Updated with Dashboard registration
 │
 └── tests/
-    ├── test_schemas.py               20 tests — all Pydantic V2 schema validation
-    ├── test_rag.py                   7 tests  — ContextInjector formatting
-    ├── test_runtime.py               15 tests — ToolRegistry + ContextEngine
-    └── test_gateway.py               7 tests  — FastAPI endpoints + middleware
+    ├── test_middleware.py            18 tests — Budget/PII/Firewall/Compression
+    ├── test_orchestration.py         16 tests — Schema/HITL/Consensus
+    └── test_evaluation.py            16 tests — Traces/Metrics/Quality
 ```
 
 ---
 
 ## Feature Coverage Matrix
 
-| Feature | Status |
-|---------|--------|
-| Pydantic V2 strict validation | ✅ |
-| Prompt template variable cross-validation | ✅ |
-| WorkflowSchema referential integrity | ✅ |
-| LLMClientFactory (OpenAI / Anthropic / Ollama) | ✅ |
-| ToolRegistry (MCP / REST API / Python / Built-in) | ✅ |
-| VectorDBClientFactory (Qdrant / Pinecone / PgVector) | ✅ |
-| KnowledgeRetrieverEngine (async + threshold filter) | ✅ |
-| ContextInjector (text blocks + state dicts) | ✅ |
-| DeepAgentFactory — `model_driven` (ReAct) | ✅ |
-| DeepAgentFactory — `agent_driven` (step sequence) | ✅ |
-| Parallel tool call execution | ✅ |
-| Tenacity retry with exponential backoff | ✅ |
-| Fallback: retry / escalate / halt | ✅ |
-| ContextEngine prompt rendering + memory window | ✅ |
-| Orchestrator — LangGraph StateGraph compilation | ✅ |
-| Conditional edge routing (safe eval) | ✅ |
-| InMemorySaver checkpointer | ✅ |
-| HITL interrupt_before registration | ✅ |
-| Runtime RAG injection per node | ✅ |
-| FastAPI `POST /workflow/run` | ✅ |
-| FastAPI `POST /hitl/approve` (resume/reject) | ✅ |
-| ExecutionTrackingMiddleware (timing + X-Request-ID) | ✅ |
-| Structlog JSON logging throughout | ✅ |
-| CORS middleware | ✅ |
-| Global exception handlers | ✅ |
+| Category | Feature | Status |
+|----------|---------|--------|
+| **Middleware** | Semantic Budget & Cost Guardrails | ✅ |
+| | Reversible PII Masking Router | ✅ |
+| | Prompt Injection Firewall (Regex + Semantic) | ✅ |
+| | Context Truncation & Summarization | ✅ |
+| **Orchestration** | Dynamic Schema Mapping (Fuzzy) | ✅ |
+| | HITL Breakpoints (Slack/Teams/Webhooks) | ✅ |
+| | Fallback & Model-Swapping Router | ✅ |
+| | Agent-to-Agent Consensus Broker | ✅ |
+| **Observability** | Distributed Execution Tracing | ✅ |
+| | Prometheus Metrics Registry | ✅ |
+| | Quality Evaluators (Relevance/Coherence/Groundedness) | ✅ |
+| | Dashboard API (/api/v1/observability/*) | ✅ |
+| **Core** | Pydantic V2 Schema Validation | ✅ |
+| | LangGraph StateGraph Compilation | ✅ |
+| | Multi-Provider LLM Factory | ✅ |
+| | Tool Registry (MCP/REST/Python) | ✅ |
 
 ---
 
 ## Running Commands
 
 ```powershell
-# Create venv & install (OneDrive workspace — requires copy mode)
-$env:UV_LINK_MODE="copy"; python -m uv pip install -e ".[dev]" --python ".venv\Scripts\python.exe"
-
-# Run all tests
+# Run all 50 tests (Middleware, Orchestration, Evaluation)
 .venv\Scripts\python.exe -m pytest tests/ -v
 
 # Start the API server
 .venv\Scripts\python.exe main.py
-# → http://localhost:8000/docs  (Swagger UI)
-# → http://localhost:8000/health
 
-# Lint check
-.venv\Scripts\python.exe -m ruff check agenticai_sdk/
+# New Observability Endpoints:
+# GET http://localhost:8000/api/v1/observability/traces
+# GET http://localhost:8000/api/v1/observability/metrics
+# GET http://localhost:8000/api/v1/observability/metrics/prometheus
+# GET http://localhost:8000/api/v1/observability/health
 ```
 
 ---
 
-## Adding API Keys (copy from .env.example)
+## Adding API Keys
 
 ```powershell
 Copy-Item .env.example .env
-# Edit .env — add OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
+# Required for full v2 functionality:
+# OPENAI_API_KEY, ANTHROPIC_API_KEY, HITL_SLACK_WEBHOOK_URL
 ```
-
-> [!NOTE]
-> **OneDrive Note**: Because the project lives in a OneDrive-synced folder, always set `$env:UV_LINK_MODE="copy"` before running `uv pip install` to avoid hardlink OS errors.
