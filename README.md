@@ -32,7 +32,8 @@ Orchestrator
   │     ├── SchemaMapperEngine   → dynamic JSON normalization
   │     ├── HITLBreakpoints      → state freeze/thaw + Slack/Teams webhooks
   │     ├── FallbackRouter       → LLM provider hot-swapping
-  │     └── ConsensusBroker      → multi-instance majority voting
+  │     ├── ConsensusBroker      → multi-instance majority voting
+  │     └── AgentDelegation      → Hierarchical sub-agent management
   │
   └── Evaluation & Observability (NEW v0.2)
         ├── TraceCollector       → distributed span trees
@@ -99,7 +100,8 @@ agenticai_sdk/
 │   ├── schema_mapper.py             # Dynamic JSON schema normalization
 │   ├── hitl_breakpoints.py          # State freeze/thaw, Slack/Teams webhooks
 │   ├── fallback_router.py           # LLM hot-swapping without state loss
-│   └── consensus_broker.py          # Multi-instance consensus voting
+│   ├── consensus_broker.py          # Multi-instance consensus voting
+│   └── sub_agent_delegate.py        # Hierarchical Agent Delegation (Sub-Agents)
 ├── evaluation/                       # NEW v0.2 — Observability Suite
 │   ├── __init__.py
 │   ├── trace_collector.py           # Distributed span tree tracing
@@ -151,7 +153,34 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 curl -X POST http://localhost:8000/api/v1/workflow/run \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow": <contents of example_workflow.json>,
+    "workflow_id": "enterprise-hierarchy-v2",
+    "name": "Hierarchical Enterprise Workflow (v0.2)",
+    "description": "A complex manager-worker workflow. A '\''Coordinator'\'' agent delegates specific sub-tasks to '\''Researcher'\'' and '\''Writer'\'' specialists using hierarchical tool calls. Includes safety guardrails, fallbacks, and consensus.",
+    "agents": [
+      {
+        "agent_id": "coordinator",
+        "role": "Strategic Project Coordinator responsible for high-level planning and delegation",
+        "prompt_template": {
+          "template_id": "coordinator_prompt",
+          "template_string": "You are the central coordinator for this request: {topic}. \n\nYour task is to:\n1. Delegate deep research to the '\''researcher'\'' specialist.\n2. Once research is received, delegate report writing to the '\''writer'\'' specialist.\n3. Review the final report and ensure it meets executive standards.",
+          "input_variables": ["topic"]
+        },
+        "llm": {
+          "provider": "openai",
+          "model_name": "gpt-4o",
+          "temperature": 0.1,
+          "api_key_env_var": "OPENAI_API_KEY"
+        },
+        "sub_agents": ["researcher", "writer"],
+        "topology": {
+          "orchestration_mode": "model_driven"
+        }
+      },
+      {
+        "agent_id": "researcher",
+        ...
+      }
+    ],
     "input_message": "Research the impact of LLMs on software engineering productivity",
     "thread_id": "session-001"
   }'
@@ -257,6 +286,9 @@ Dynamically swaps LLM providers mid-execution on failure (timeout, rate-limit, A
 ### Agent-to-Agent Consensus Broker
 Spins up N parallel agent instances with varied system prompts (temperature variations). Executes downstream changes only upon majority consensus. Configurable agreement threshold.
 
+### Hierarchical Agent Nesting (NEW)
+Define "Manager" agents that delegate tasks to "Specialist" sub-agents. The Orchestrator automatically converts sub-agents into callable tools (e.g., `delegate_to_researcher`) with full state sharing.
+
 ```json
 {
   "consensus_config": {
@@ -328,14 +360,121 @@ Every node receives and returns a `WorkflowState` TypedDict:
 ### Conditional Edge Routing
 Edge conditions are Python expressions evaluated against `state`:
 ```json
-{ "condition": "state[\"next_step\"] == \"review\"" }
-{ "condition": "len(state[\"messages\"]) > 10" }
-{ "condition": "\"error\" in state[\"scratchpad\"]" }
+{
+  "edges": [
+    {
+      "source": "coordinator",
+      "target": "__end__",
+      "condition": null
+    }
+  ],
+
+  "hitl": {
+    "interruption_points": ["coordinator"],
+    "approval_timeout": 1800,
+    "notification_channel": "slack"
+  },
+
+  "entry_point": "coordinator"
+}
 ```
 
 ### HITL (Human-in-the-Loop)
 List agent IDs in `hitl.interruption_points`. The graph pauses at those nodes.
 Resume via `POST /api/v1/workflow/hitl/approve` with `{ "approved": true }`.
+
+---
+
+# 🛠 Configuration & Orchestration Guide
+
+This guide explains how to configure your workflow JSON to leverage the SDK's advanced "switches" for different enterprise scenarios.
+
+## 1. Orchestration Modes: The "Cognitive Switch"
+You can control how an agent thinks by toggling `topology.orchestration_mode`.
+
+### 🧠 Model-Driven (ReAct)
+**When to use:** For complex, non-linear tasks where the agent needs to "think on its feet."
+- **Behavior**: The agent receives tools and a goal. It reasons, calls tools, and loops until it finds the answer.
+- **JSON Switch**:
+  ```json
+  "topology": { "orchestration_mode": "model_driven" }
+  ```
+
+### 📋 Agent-Driven (Step-Sequence)
+**When to use:** For strict business processes or when you want the agent to follow a high-fidelity reasoning path.
+- **Behavior**: The agent is forced to go through specific phases (e.g., *Analyze* → *Plan* → *Execute*).
+- **JSON Switch**:
+  ```json
+  "topology": {
+    "orchestration_mode": "agent_driven",
+    "reasoning_steps": ["verify_source", "extract_data", "summarize"]
+  }
+  ```
+
+---
+
+## 2. Hierarchical Delegation (Sub-Agents)
+To create a "Manager" agent, use the `sub_agents` field.
+
+- **The Logic**: The parent agent sees every ID in `sub_agents` as a tool it can call (e.g., `delegate_to_researcher`).
+- **Scenario**: Use this when a task is too large for one agent. A *Manager* agent can break down a project and delegate pieces to *Specialists*.
+- **JSON Setup**:
+  ```json
+  {
+    "agent_id": "manager",
+    "sub_agents": ["research_specialist", "coding_specialist"]
+  }
+  ```
+
+---
+
+## 3. Resilience & Quality Switches
+
+### 🛡 Fallback Routing (The "No-Fail" Switch)
+If your primary model (e.g., GPT-4) hits a rate limit or goes down, the SDK can instantly swap to a backup without crashing.
+- **JSON Setup**:
+  ```json
+  "fallback_llms": [
+    { "provider": "anthropic", "model_name": "claude-3-haiku-..." }
+  ]
+  ```
+
+### 🤝 Consensus (The "Truth" Switch)
+For high-stakes decisions, spin up multiple instances of the same agent and only proceed if they agree.
+- **JSON Setup**:
+  ```json
+  "consensus_config": {
+    "enabled": true,
+    "instances": 3,
+    "threshold": 0.7
+  }
+  ```
+
+---
+
+## 4. Safety & Guardrails (Middleware)
+Every agent has a `middleware_config` that is **on by default** but can be customized.
+
+- **Budget**: Kill the execution if it spends more than $X or takes more than Y iterations.
+- **PII**: Automatically redact emails, SSNs, and names before they hit the LLM.
+- **Firewall**: Stop "Prompt Injection" attacks before they reach your logic.
+
+```json
+"middleware_config": {
+  "budget": { "max_cost_per_workflow": 0.50 },
+  "pii": { "enabled": true, "masking_level": "hash" }
+}
+```
+
+---
+
+## 🚀 Summary Scenario: A Production Setup
+| If you want... | Use these settings... |
+| :--- | :--- |
+| **Highest Accuracy** | `consensus_config` + `model_driven` |
+| **Lowest Latency** | `agent_driven` (small steps) + `gpt-4o-mini` |
+| **Data Privacy** | `pii: { "enabled": true }` |
+| **Complex Projects** | `sub_agents` (Manager/Worker pattern) |
 
 ---
 

@@ -100,6 +100,7 @@ AgenticAI_SDK/
 - **HITL Breakpoints**: Execution freezing with Slack/Teams webhook notifications.
 - **Fallback Router**: Non-blocking model swapping on provider failure.
 - **Consensus Broker**: Majority-rule agreement across parallel agent instances.
+- **Hierarchical Delegation**: Manager-worker patterns with sub-agent tool injection.
 
 ### Domain 8: Evaluation & Observability
 - **Distributed Tracing**: Hierarchical span trees for every workflow execution.

@@ -62,6 +62,61 @@ logger = structlog.get_logger(__name__)
 _END = END
 
 
+class SubAgentTool:
+    """A tool wrapper that allows a parent agent to delegate tasks to a sub-agent."""
+
+    def __init__(
+        self,
+        sub_agent_id: str,
+        node_registry: dict[str, Callable],
+        role: str,
+    ) -> None:
+        from langchain_core.tools import Tool
+
+        self.sub_agent_id = sub_agent_id
+        self.node_registry = node_registry
+        self.role = role
+        self.tool = Tool(
+            name=f"delegate_to_{sub_agent_id}",
+            description=(
+                f"Delegate a specific task to the '{sub_agent_id}' agent. "
+                f"Role of sub-agent: {role}. Input should be the clear task instructions."
+            ),
+            func=self._sync_run,
+            coroutine=self._arun,
+        )
+
+
+    def _sync_run(self, task: str) -> str:
+        raise NotImplementedError("SubAgentTool only supports async execution.")
+
+    async def _arun(self, task: str) -> str:
+        """Invoke the sub-agent with the delegated task."""
+        from langchain_core.messages import HumanMessage
+
+        executor = self.node_registry.get(self.sub_agent_id)
+        if not executor:
+            return f"Error: Sub-agent '{self.sub_agent_id}' not found in registry."
+
+        sub_state: WorkflowState = {
+            "messages": [HumanMessage(content=task)],
+            "scratchpad": {},
+            "retrieved_context": [],
+            "inner_thoughts": [],
+            "next_step": None,
+            "middleware_metadata": {},
+            "trace_id": None,
+        }
+        result = await executor(sub_state)
+        messages = result.get("messages", [])
+        if messages:
+            return str(messages[-1].content)
+        return "Sub-agent completed the task but returned no message."
+
+
+
+
+
 class Orchestrator:
     """Macro-execution engine that compiles a ``WorkflowSchema`` into a
     runnable LangGraph application.
@@ -140,13 +195,19 @@ class Orchestrator:
             # ── Step 3: Build the StateGraph ──────────────────────────────
             graph = StateGraph(WorkflowState)
 
-            # ── Step 4: Register agent nodes ─────────────────────────────
+            # ── Step 4: Build all node callables first (for sub-agent cross-ref) ──
+            node_callables: dict[str, Callable] = {}
+            for agent_config in schema.agents:
+                node_callables[agent_config.agent_id] = await self._build_node_callable(
+                    agent_config, rag_retriever_map, schema, node_callables
+                )
+
+            # ── Step 5: Register agent nodes ─────────────────────────────
             hitl_interrupt_nodes: list[str] = schema.hitl.interruption_points
 
-            for agent_config in schema.agents:
-                node_callable = await self._build_node(agent_config, rag_retriever_map, schema)
-                graph.add_node(agent_config.agent_id, node_callable)
-                log.debug("graph_node_registered", node=agent_config.agent_id)
+            for agent_id, node_callable in node_callables.items():
+                graph.add_node(agent_id, node_callable)
+                log.debug("graph_node_registered", node=agent_id)
 
             # ── Step 5: Set entry point ───────────────────────────────────
             graph.set_entry_point(schema.entry_point)
@@ -179,29 +240,38 @@ class Orchestrator:
 
     # ── Node construction ─────────────────────────────────────────────────────
 
-    async def _build_node(
+    async def _build_node_callable(
         self,
         agent_config: AgentNodeConfig,
         rag_retriever_map: dict[str, KnowledgeRetrieverEngine],
         schema: WorkflowSchema,
+        all_nodes: dict[str, Callable],
     ) -> Callable[[WorkflowState], dict[str, Any]]:
-        """Build a single LangGraph node callable for an agent node config.
-
-        Wraps the inner DeepAgent runner with:
-          - Middleware pipeline (before/after hooks)
-          - Fallback routing (LLM failover)
-          - Consensus execution (multi-instance agreement)
-          - Trace span collection
-          - Metrics recording
-        """
-
+        """Build a single LangGraph node callable for an agent node config."""
         # Resolve LLM
         resolved_llm = self._llm_factory.create(agent_config.llm)
 
-        # Resolve tools
-        resolved_tools = self._tool_registry.get_tools_for_agent(agent_config.tools)
+        # Resolve primary tools
+        resolved_tools = list(self._tool_registry.get_tools_for_agent(agent_config.tools))
 
-        # Pre-fetch RAG context for this node's sources (retrieved at compile time)
+        # ── Handle Sub-Agents (Hierarchy) ─────────────────────────────────
+        if agent_config.sub_agents:
+            agent_map = {a.agent_id: a for a in schema.agents}
+            for sa_id in agent_config.sub_agents:
+                sub_agent_meta = agent_map.get(sa_id)
+                role = sub_agent_meta.role if sub_agent_meta else "Specialist"
+                
+                # Create the delegation tool with a reference to the shared registry
+                delegator = SubAgentTool(
+                    sub_agent_id=sa_id,
+                    node_registry=all_nodes,
+                    role=role
+                )
+                resolved_tools.append(delegator.tool)
+                logger.debug("sub_agent_tool_bound", parent=agent_config.agent_id, sub_agent=sa_id)
+
+
+        # Pre-fetch RAG context...
         # For runtime retrieval, the node itself can trigger fresh queries
         retrieved_docs: list[Any] = []
         if agent_config.rag_sources:

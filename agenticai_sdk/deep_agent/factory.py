@@ -47,7 +47,7 @@ class DeepAgentFactory:
         resolved_llm: BaseChatModel,
         resolved_tools: list[BaseTool],
         retrieved_docs: list[Any] | None = None,
-    ) -> Callable[[WorkflowState], dict[str, Any]]:
+    ) -> Callable[[WorkflowState], Any]:
         """Build and return an async graph-node callable for ``config``.
 
         Args:

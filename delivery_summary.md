@@ -1,12 +1,5 @@
 # AgenticAI SDK — Delivery Summary
 
-## ✅ Test Results: 50/50 PASSED (v0.2.0)
-
-```
-========================= 50 passed in 0.42s =========================
-```
-
----
 
 ## Updated File Tree (v0.2.0)
 
@@ -74,6 +67,7 @@ AgenticAI_SDK/
 | | HITL Breakpoints (Slack/Teams/Webhooks) | ✅ |
 | | Fallback & Model-Swapping Router | ✅ |
 | | Agent-to-Agent Consensus Broker | ✅ |
+| | Hierarchical Agent Delegation (Sub-Agents) | ✅ |
 | **Observability** | Distributed Execution Tracing | ✅ |
 | | Prometheus Metrics Registry | ✅ |
 | | Quality Evaluators (Relevance/Coherence/Groundedness) | ✅ |
