@@ -80,12 +80,8 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         redoc_url="/redoc",
         openapi_url="/openapi.json",
         contact={
-            "name": "AgenticAI SDK Team",
-            "url": "https://github.com/agenticai-sdk",
-        },
-        license_info={
-            "name": "MIT",
-            "url": "https://opensource.org/licenses/MIT",
+            "name": "HARPY.AI Team",
+            "url": "https://harpy.ai",
         },
     )
 
