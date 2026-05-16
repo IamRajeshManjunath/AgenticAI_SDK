@@ -47,11 +47,14 @@ export function GlobalSidebar() {
     sidebarOpen,
     toggleSidebar,
     createWorkspace,
+    updateWorkspace,
+    deleteWorkspace,
     setActiveWorkspace,
     createWorkflow,
     setActiveWorkflow,
     deleteWorkflow,
     duplicateWorkflow,
+    updateWorkflow,
   } = useWorkflowStore()
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)

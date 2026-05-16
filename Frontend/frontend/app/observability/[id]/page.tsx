@@ -65,11 +65,7 @@ export default function ObservabilityPage() {
   const { data: traceData, error: traceError } = useSWR(
     `http://localhost:8000/api/v1/workflow/observability/traces/${workflowId}`,
     fetcher,
-    { 
-      refreshInterval: (traceData && (traceData.status === 'completed' || traceData.status === 'failed')) 
-        ? 0 
-        : 2000 
-    }
+    { refreshInterval: 2000 }
   )
 
   const { data: metricsData } = useSWR(
@@ -340,10 +336,10 @@ export default function ObservabilityPage() {
                   <TabsContent value="messages" className="h-[150px] p-0 m-0">
                     <pre className="h-full overflow-auto scrollbar-thin p-4 bg-background/50 text-xs font-mono">
                       {JSON.stringify(
-                        workflowState.messages.map((m) => ({
+                        messages.map((m) => ({
                           type: m.type,
                           agent: m.agent_id,
-                          content: m.content.substring(0, 50) + '...',
+                          content: m.content?.substring(0, 50) + '...',
                         })),
                         null,
                         2
