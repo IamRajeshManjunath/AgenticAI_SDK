@@ -56,6 +56,14 @@ def _configure_logging(log_level: str = "INFO") -> None:
 # ── App factory ───────────────────────────────────────────────────────────────
 
 
+from contextlib import asynccontextmanager
+from agenticai_sdk.db import init_db
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -83,6 +91,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
             "name": "HARPY.AI Team",
             "url": "https://harpy.ai",
         },
+        lifespan=lifespan,
     )
 
     # ── Middleware ────────────────────────────────────────────────────────

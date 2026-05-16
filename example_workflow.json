@@ -111,7 +111,11 @@
     {
       "source": "coordinator",
       "target": "__end__",
-      "condition": null
+      "condition": {
+        "field": "next_step",
+        "operator": "==",
+        "value": "finished"
+      }
     }
   ],
   "hitl": {

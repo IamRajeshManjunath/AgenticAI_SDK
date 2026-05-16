@@ -595,23 +595,44 @@ _SAFE_CONDITION_PATTERN = re.compile(
 )
 
 
-def _evaluate_condition(expression: str, state: WorkflowState) -> bool:
+def _evaluate_condition(expression: str | dict[str, Any], state: WorkflowState) -> bool:
     """Safely evaluate an edge condition expression against the WorkflowState.
 
-    The evaluator provides ``state`` as the only allowed variable and
-    validates the expression against a character whitelist before eval.
+    The evaluator supports dictionaries (JSON-like schema) or safe Python string expressions.
 
     Args:
-        expression: Condition string, e.g. ``state["next_step"] == "review"``.
+        expression: Condition string or dict.
         state: The current WorkflowState.
 
     Returns:
         Boolean result of the expression evaluation.
-
-    Raises:
-        GraphRoutingError: If the expression is unsafe or evaluation fails.
     """
-    # Validate expression safety
+    if isinstance(expression, dict):
+        field = expression.get("field")
+        op = expression.get("operator", "==")
+        value = expression.get("value")
+        
+        if not field:
+            return False
+        # Simplistic direct access. E.g. field="next_step" -> state["next_step"]
+        actual_val = state.get(field)
+        
+        if op == "==":
+            return actual_val == value
+        elif op == "!=":
+            return actual_val != value
+        elif op == ">":
+            return actual_val > value
+        elif op == "<":
+            return actual_val < value
+        elif op == "in":
+            return actual_val in value if isinstance(value, list) else False
+        elif op == "contains":
+            return value in actual_val if isinstance(actual_val, (list, str, dict)) else False
+        return False
+
+    # String expression scenario
+    expression = str(expression)
     if not _SAFE_CONDITION_PATTERN.match(expression.strip()):
         raise GraphRoutingError(
             f"Unsafe condition expression rejected: {expression!r}",

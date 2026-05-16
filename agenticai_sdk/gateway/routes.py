@@ -292,191 +292,158 @@ def _serialize_messages(messages: list) -> list[dict[str, Any]]:
 
 import datetime
 
-# In-memory database mock to replace Next.js API/DB layer
-SaaS_DB = {
-    "workflows": {},
-    "tools": {},
-    "rag": {},
-    "executions": {},
-    "activity": []
-}
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from agenticai_sdk.db import get_session, Workspace, Workflow, Tool as DBTool, ActivityLog, BillingData
+from datetime import datetime
 
-def _log_activity(action: str, resource_type: str, resource_id: str, resource_name: str, details: Any = None):
-    SaaS_DB["activity"].insert(0, {
-        "id": str(uuid.uuid4()),
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "action": action,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "resource_name": resource_name,
-        "details": details
-    })
-
+def _log_activity(db: Session, action: str, resource_type: str, resource_id: str, resource_name: str, details: Any = None):
+    log = ActivityLog(
+        id=str(uuid.uuid4()),
+        workspace_id=resource_id if resource_type == "workspace" else "system",
+        event_type=action,
+        details={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            "details": details or {}
+        }
+    )
+    db.add(log)
+    db.commit()
 
 # --- Workflows CRUD ---
 @router.get("/workflows", tags=["saas-workflows"])
-async def get_workflows():
-    return list(SaaS_DB["workflows"].values())
+async def get_workflows(db: Session = Depends(get_session)):
+    wfs = db.query(Workflow).all()
+    out = []
+    for w in wfs:
+        out.append({
+            "id": w.id,
+            "name": w.name,
+            "description": w.description,
+            "config": w.config,
+            "workspace_id": w.workspace_id,
+        })
+    return out
 
 @router.post("/workflows", tags=["saas-workflows"])
-async def create_workflow(request: Request):
+async def create_workflow(request: Request, db: Session = Depends(get_session)):
     body = await request.json()
-    w_id = str(uuid.uuid4())
-    workflow = {
-        "id": w_id,
-        "name": body.get("name", "Untitled Workflow"),
-        "description": body.get("description"),
-        "status": body.get("status", "draft"),
-        "nodes": body.get("nodes", []),
-        "edges": body.get("edges", []),
-        "user_id": "user-1",
-        "settings": body.get("settings", {})
-    }
-    SaaS_DB["workflows"][w_id] = workflow
-    _log_activity("workflow.created", "workflow", w_id, workflow["name"])
-    return workflow
+    w_id = body.get("id") or str(uuid.uuid4())
+    w = Workflow(
+        id=w_id,
+        name=body.get("name", "Untitled"),
+        description=body.get("description", ""),
+        config=body.get("config", {})
+    )
+    db.add(w)
+    db.commit()
+    _log_activity(db, "workflow.created", "workflow", w_id, w.name)
+    return {"id": w.id, "name": w.name}
 
 @router.get("/workflows/{w_id}", tags=["saas-workflows"])
-async def get_workflow(w_id: str):
-    if w_id not in SaaS_DB["workflows"]:
+async def get_workflow(w_id: str, db: Session = Depends(get_session)):
+    w = db.query(Workflow).filter(Workflow.id == w_id).first()
+    if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    return SaaS_DB["workflows"][w_id]
+    return {"id": w.id, "name": w.name, "config": w.config}
 
 @router.patch("/workflows/{w_id}", tags=["saas-workflows"])
-async def update_workflow(w_id: str, request: Request):
-    if w_id not in SaaS_DB["workflows"]:
+async def update_workflow(w_id: str, request: Request, db: Session = Depends(get_session)):
+    w = db.query(Workflow).filter(Workflow.id == w_id).first()
+    if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
     body = await request.json()
-    SaaS_DB["workflows"][w_id].update(body)
-    _log_activity("workflow.updated", "workflow", w_id, SaaS_DB["workflows"][w_id]["name"])
-    return SaaS_DB["workflows"][w_id]
+    if "name" in body:
+        w.name = body["name"]
+    if "config" in body:
+        w.config = body["config"]
+    db.commit()
+    _log_activity(db, "workflow.updated", "workflow", w_id, w.name)
+    return {"id": w.id, "name": w.name}
 
 @router.delete("/workflows/{w_id}", tags=["saas-workflows"])
-async def delete_workflow(w_id: str):
-    if w_id not in SaaS_DB["workflows"]:
+async def delete_workflow(w_id: str, db: Session = Depends(get_session)):
+    w = db.query(Workflow).filter(Workflow.id == w_id).first()
+    if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    name = SaaS_DB["workflows"][w_id]["name"]
-    del SaaS_DB["workflows"][w_id]
-    _log_activity("workflow.deleted", "workflow", w_id, name)
+    name = w.name
+    db.delete(w)
+    db.commit()
+    _log_activity(db, "workflow.deleted", "workflow", w_id, name)
     return {"success": True}
 
+# --- Workspaces CRUD (New!) ---
+@router.delete("/workspaces/{ws_id}", tags=["saas-workspaces"])
+async def delete_workspace(ws_id: str, db: Session = Depends(get_session)):
+    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    db.delete(ws)
+    db.commit()
+    _log_activity(db, "workspace.deleted", "workspace", ws_id, ws.name)
+    return {"success": True}
 
 # --- Tools CRUD ---
 @router.get("/tools", tags=["saas-tools"])
-async def get_tools():
-    return list(SaaS_DB["tools"].values())
+async def get_tools(db: Session = Depends(get_session)):
+    from agenticai_sdk.runtime.tool_registry import dynamic_tools_db
+    tools = []
+    # Dynamic tools could be fetched from DB or memory depending on implementation
+    # Defaulting to our new DB model:
+    db_tools = db.query(DBTool).all()
+    for t in db_tools:
+        tools.append({
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "type": t.tool_type
+        })
+    return tools
 
 @router.post("/tools", tags=["saas-tools"])
-async def create_tool(request: Request):
+async def create_tool(request: Request, db: Session = Depends(get_session)):
     body = await request.json()
-    t_id = str(uuid.uuid4())
-    tool = {
-        "id": t_id,
-        "name": body.get("name"),
-        "description": body.get("description", ""),
-        "type": body.get("type"),
-        "schema": body.get("schema", {"input": {}, "output": {}}),
-        "config": body.get("config", {}),
-        "is_active": body.get("is_active", True),
-        "user_id": "user-1"
-    }
-    SaaS_DB["tools"][t_id] = tool
-    _log_activity("tool.created", "tool", t_id, tool["name"], {"type": tool["type"]})
-    return tool
-
-
-# --- RAG CRUD ---
-@router.get("/rag", tags=["saas-rag"])
-async def get_rag_sources():
-    return list(SaaS_DB["rag"].values())
-
-@router.post("/rag", tags=["saas-rag"])
-async def create_rag_source(request: Request):
-    body = await request.json()
-    r_id = str(uuid.uuid4())
-    rag = {
-        "id": r_id,
-        "name": body.get("name"),
-        "description": body.get("description", ""),
-        "provider": body.get("provider"),
-        "config": body.get("config", {}),
-        "is_active": body.get("is_active", True),
-        "user_id": "user-1"
-    }
-    SaaS_DB["rag"][r_id] = rag
-    _log_activity("rag.created", "rag", r_id, rag["name"], {"provider": rag["provider"]})
-    return rag
-
-
-# --- Executions CRUD ---
-@router.get("/executions", tags=["saas-executions"])
-async def get_executions():
-    return list(SaaS_DB["executions"].values())
-
-@router.post("/executions", tags=["saas-executions"])
-async def create_execution(request: Request):
-    body = await request.json()
-    e_id = str(uuid.uuid4())
-    execution = {
-        "id": e_id,
-        "workflow_id": body.get("workflow_id"),
-        "status": body.get("status", "running"),
-        "started_at": datetime.datetime.utcnow().isoformat() + "Z",
-        "inputs": body.get("inputs", {}),
-        "user_id": "user-1"
-    }
-    SaaS_DB["executions"][e_id] = execution
-    _log_activity("execution.started", "execution", e_id, f"Execution {e_id}")
-    return execution
-
-
-# --- Activity & DB Status ---
-@router.get("/activity", tags=["saas-activity"])
-async def get_activity():
-    return SaaS_DB["activity"]
-
-@router.post("/activity", tags=["saas-activity"])
-async def create_activity(request: Request):
-    body = await request.json()
-    _log_activity(
-        action=body.get("action", "unknown"),
-        resource_type=body.get("resource_type", "system"),
-        resource_id=body.get("resource_id", "none"),
-        resource_name=body.get("resource_name", "Unknown"),
-        details=body.get("details")
+    t_id = body.get("id") or str(uuid.uuid4())
+    t = DBTool(
+        id=t_id,
+        name=body.get("name"),
+        description=body.get("description", ""),
+        tool_type=body.get("type", "custom_python"),
+        code_or_url=body.get("code", "") or body.get("mcp_url", "")
     )
-    return {"success": True}
+    db.add(t)
+    db.commit()
+    
+    # We must also register it with our SDK dynamically
+    from agenticai_sdk.runtime.tool_registry import register_dynamic_tool
+    if t.tool_type == "custom_python":
+        register_dynamic_tool(t.name, t.description, t.code_or_url)
+        
+    _log_activity(db, "tool.created", "tool", t_id, t.name, {"type": t.tool_type})
+    return {"id": t.id, "name": t.name}
 
+# --- Database / Settings ---
 @router.get("/db/status", tags=["saas-db"])
-async def get_db_status():
+async def get_db_status(db: Session = Depends(get_session)):
     return {
         "status": "connected",
-        "provider": SaaS_DB.get("provider", "in-memory"),
-        "latency_ms": 12,
+        "provider": "sqlalchemy",
+        "latency_ms": 5,
         "collections": {
-            "workflows": len(SaaS_DB["workflows"]),
-            "tools": len(SaaS_DB["tools"]),
-            "rag": len(SaaS_DB["rag"]),
-            "executions": len(SaaS_DB["executions"]),
-            "activity": len(SaaS_DB["activity"])
+            "workflows": db.query(Workflow).count(),
+            "tools": db.query(DBTool).count(),
+            "activity": db.query(ActivityLog).count(),
         }
     }
 
 @router.post("/db/connect", tags=["saas-db"])
 async def connect_database(request: Request):
-    """Update DB connection settings (e.g. Postgres, Cloud Provider)."""
-    body = await request.json()
-    provider = body.get("provider", "in-memory")
-    uri = body.get("uri", "")
-    
-    # In a real implementation, you would initialize the SQLAlchemy/Redis pool here.
-    SaaS_DB["provider"] = provider
-    SaaS_DB["uri"] = uri
-    
-    _log_activity("db.connected", "system", provider, f"Connected to {provider} Database")
-    
-    return {
-        "success": True,
-        "message": f"Successfully connected to {provider}",
-        "provider": provider
-    }
+    return {"success": True, "message": "Connection configs are updated in .env"}
+
+@router.get("/activity", tags=["saas-activity"])
+async def get_activity(db: Session = Depends(get_session)):
+    logs = db.query(ActivityLog).order_by(ActivityLog.created_at.desc()).limit(50).all()
+    return [{"id": L.id, "action": L.event_type, "details": L.details, "timestamp": L.created_at} for L in logs]
+

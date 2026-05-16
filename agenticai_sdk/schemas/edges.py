@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -27,11 +28,11 @@ class EdgeConfig(BaseModel):
         min_length=1,
         description="Target node agent_id.",
     )
-    condition: str | None = Field(
+    condition: str | dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Optional condition expression evaluated against the current WorkflowState. "
-            "Examples: 'state[\"next_step\"] == \"review\"', 'len(state[\"messages\"]) > 5'."
+            "Optional condition expression or JSON-like simple schema evaluator evaluated against the current WorkflowState. "
+            "Examples: 'state[\"next_step\"] == \"review\"', or {'field': 'next_step', 'operator': '==', 'value': 'review'}."
         ),
     )
     routing_middleware: list[str] | None = Field(

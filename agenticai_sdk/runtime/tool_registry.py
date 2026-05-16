@@ -19,6 +19,30 @@ logger = structlog.get_logger(__name__)
 # Global in-memory tool cache (shared across registry instances)
 _TOOL_CACHE: dict[str, BaseTool] = {}
 
+# Dictionary to hold dynamically registered custom tools mapping name -> (description, literal_python_code)
+dynamic_tools_db: dict[str, dict] = {}
+
+def register_dynamic_tool(name: str, description: str, code_string: str) -> None:
+    """Dynamically registers a custom Python tool from literal code strings using exec."""
+    global dynamic_tools_db
+    dynamic_tools_db[name] = {"description": description, "code": code_string}
+    
+    # We create a local scope and exec the code. The code must define a function with the same name.
+    local_scope = {}
+    try:
+        exec(code_string, globals(), local_scope)
+        func = local_scope.get(name)
+        if callable(func):
+            # Wrap as a LangChain Tool
+            from langchain_core.tools import StructuredTool
+            tool = StructuredTool.from_function(func, name=name, description=description)
+            _TOOL_CACHE[name] = tool
+            logger.info("dynamic_tool_registered", name=name)
+        else:
+            logger.error("dynamic_tool_not_callable", name=name)
+    except Exception as e:
+        logger.error("dynamic_tool_exec_failed", name=name, error=str(e))
+
 
 class ToolRegistry:
     """Resolves ``ToolConfig`` definitions into runnable LangChain ``BaseTool`` instances.
@@ -82,6 +106,11 @@ class ToolRegistry:
         """Instantiate a single tool and add it to the registry."""
         logger.debug("tool_registering", tool_id=config.tool_id, type=config.type.value)
         try:
+            if config.tool_id in _TOOL_CACHE:
+                self._registry[config.tool_id] = _TOOL_CACHE[config.tool_id]
+                logger.info("tool_registered_from_cache", tool_id=config.tool_id)
+                return
+
             if config.type == ToolType.MCP:
                 instance = _build_mcp_tool(config)
             elif config.type == ToolType.REST_API:

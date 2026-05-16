@@ -160,3 +160,61 @@ class KnowledgeRetrieverEngine:
                     )
                 )
         return documents
+
+    async def ingest_from_s3(self, bucket: str, prefix: str, access_key: str, secret_key: str, region: str) -> int:
+        """Ingest documents from an S3 bucket prefix into the vector store."""
+        import boto3
+        import io
+        
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+        s3 = session.client('s3')
+        
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        files = response.get('Contents', [])
+        
+        count = 0
+        for file in files:
+            obj = s3.get_object(Bucket=bucket, Key=file['Key'])
+            content = obj['Body'].read().decode('utf-8')
+            
+            # Simple chunking & embedding mock
+            chunks = [content[i:i+1000] for i in range(0, len(content), 1000)]
+            for chunk in chunks:
+                emb = await self._embed_query(chunk)
+                if hasattr(self._db_client, 'upsert'):
+                    await self._db_client.upsert(
+                        collection_name="default", # would come from config in full impl
+                        points=[{
+                            "id": f"{file['Key']}_{count}",
+                            "vector": emb,
+                            "payload": {"content": chunk, "source": f"s3://{bucket}/{file['Key']}"}
+                        }]
+                    )
+                count += 1
+                
+        logger.info("s3_ingestion_complete", bucket=bucket, chunks_indexed=count)
+        return count
+
+    async def ingest_from_upload(self, filename: str, content: bytes) -> int:
+        """Ingest a directly uploaded file."""
+        text = content.decode('utf-8', errors='ignore')
+        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
+        count = 0
+        for chunk in chunks:
+            emb = await self._embed_query(chunk)
+            if hasattr(self._db_client, 'upsert'):
+                await self._db_client.upsert(
+                    collection_name="default",
+                    points=[{
+                        "id": f"{filename}_{count}",
+                        "vector": emb,
+                        "payload": {"content": chunk, "source": f"upload://{filename}"}
+                    }]
+                )
+            count += 1
+        logger.info("upload_ingestion_complete", filename=filename, chunks_indexed=count)
+        return count
