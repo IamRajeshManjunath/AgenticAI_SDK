@@ -51,6 +51,8 @@ export function GlobalSidebar() {
     sidebarOpen,
     toggleSidebar,
     createWorkspace,
+    updateWorkspace,
+    deleteWorkspace,
     setActiveWorkspace,
     updateWorkspace,
     deleteWorkspace,
@@ -59,6 +61,7 @@ export function GlobalSidebar() {
     updateWorkflow,
     deleteWorkflow,
     duplicateWorkflow,
+    updateWorkflow,
   } = useWorkflowStore()
 
   const activeWorkspace = workspaces.find((w: any) => w.id === activeWorkspaceId)
