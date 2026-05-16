@@ -135,6 +135,7 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
                   <SelectItem value="qdrant">Qdrant</SelectItem>
                   <SelectItem value="chroma">Chroma</SelectItem>
                   <SelectItem value="milvus">Milvus</SelectItem>
+                  <SelectItem value="file">Local File / Directory</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -150,25 +151,45 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div>
-          <Label className="text-xs text-muted-foreground">Connection URI</Label>
-          <Input
-            value={source.uri}
-            onChange={(e) => onUpdate({ uri: e.target.value })}
-            className="mt-1 font-mono text-sm"
-            placeholder="https://..."
-          />
-        </div>
+        {source.provider !== 'file' ? (
+          <>
+            <div>
+              <Label className="text-xs text-muted-foreground">Connection URI</Label>
+              <Input
+                value={source.uri || ''}
+                onChange={(e) => onUpdate({ uri: e.target.value })}
+                className="mt-1 font-mono text-sm"
+                placeholder="https://..."
+              />
+            </div>
 
-        <div>
-          <Label className="text-xs text-muted-foreground">API Key Env Var</Label>
-          <Input
-            value={source.api_key_env_var || ''}
-            onChange={(e) => onUpdate({ api_key_env_var: e.target.value })}
-            className="mt-1 font-mono text-sm"
-            placeholder="PINECONE_API_KEY"
-          />
-        </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">API Key Env Var</Label>
+              <Input
+                value={source.api_key_env_var || ''}
+                onChange={(e) => onUpdate({ api_key_env_var: e.target.value })}
+                className="mt-1 font-mono text-sm"
+                placeholder="VECTOR_DB_API_KEY"
+              />
+            </div>
+          </>
+        ) : (
+          <div>
+            <Label className="text-xs text-muted-foreground">Upload File / Path</Label>
+            <div className="flex gap-2 mt-1">
+              <Input
+                value={source.file_path || ''}
+                onChange={(e) => onUpdate({ file_path: e.target.value })}
+                className="font-mono text-sm"
+                placeholder="/path/to/documents"
+              />
+              <Button size="sm" variant="secondary">Browse</Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Connect local PDF, TXT, or JSON files for immediate ingestion.
+            </p>
+          </div>
+        )}
 
         <div>
           <Label className="text-xs text-muted-foreground">Embedding Model</Label>

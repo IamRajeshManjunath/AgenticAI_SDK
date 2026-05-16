@@ -14,13 +14,15 @@ export interface ToolConfig {
 
 export interface RAGSourceConfig {
   id: string
-  provider: 'pinecone' | 'weaviate' | 'qdrant' | 'chroma' | 'milvus'
-  uri: string
+  provider: 'pinecone' | 'weaviate' | 'qdrant' | 'chroma' | 'milvus' | 'file'
+  name?: string
+  uri?: string
   api_key_env_var?: string
   embedding_model: string
   top_k: number
   similarity_threshold: number
   hybrid_search: boolean
+  file_path?: string
 }
 
 export interface LLMConfig {

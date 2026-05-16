@@ -49,18 +49,21 @@ interface WorkflowCanvasProps {
   workflowId: string
   onNodeSelect: (nodeId: string | null) => void
   onEdgeSelect: (edgeId: string | null) => void
+  selectedEdgeId: string | null
 }
 
 export function WorkflowCanvas({
   workflowId,
   onNodeSelect,
   onEdgeSelect,
+  selectedEdgeId,
 }: WorkflowCanvasProps) {
   const {
     workflows,
     selectedNodeId,
     addAgent,
     addEdge: addWorkflowEdge,
+    updateEdge,
     deleteAgent,
     deleteEdge,
     updateWorkflow,
@@ -248,13 +251,10 @@ export function WorkflowCanvas({
     console.log('Running workflow:', workflowId)
   }, [workflowId, validateWorkflow])
 
-  if (!workflow) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Workflow not found</p>
-      </div>
-    )
-  }
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) return null
+    return workflow.edges.find((e) => e.id === selectedEdgeId)
+  }, [selectedEdgeId, workflow.edges])
 
   return (
     <div className="w-full h-full relative">
@@ -399,6 +399,37 @@ export function WorkflowCanvas({
             ) : (
               <Button onClick={handleImport}>Import Workflow</Button>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edge Condition Dialog */}
+      <Dialog open={!!selectedEdgeId} onOpenChange={(open) => !open && onEdgeSelect(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Edge Condition</DialogTitle>
+            <DialogDescription>
+              Define Python logic for this transition.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Condition (Python Expression)</label>
+              <Textarea
+                value={selectedEdge?.condition || ''}
+                onChange={(e) => {
+                  updateEdge(workflowId, selectedEdgeId!, { condition: e.target.value })
+                }}
+                placeholder='state["last_message"].content.lower() == "yes"'
+                className="font-mono text-sm h-32"
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty for unconditional transition.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => onEdgeSelect(null)}>Done</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -98,6 +98,7 @@ export default function WorkflowBuilderPage() {
             workflowId={workflowId}
             onNodeSelect={handleNodeSelect}
             onEdgeSelect={handleEdgeSelect}
+            selectedEdgeId={selectedEdgeId}
           />
           <RegistryDrawer />
         </div>

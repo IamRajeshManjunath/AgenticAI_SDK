@@ -16,8 +16,14 @@ import { useWorkflowStore } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
+import useSWR from 'swr'
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
 export default function HomePage() {
   const { workflows, createWorkflow, metrics } = useWorkflowStore()
+  const { data: dbStatus } = useSWR('http://localhost:8000/api/v1/workflow/db/status', fetcher)
+  
   const workflowList = Object.values(workflows)
 
   const handleCreateWorkflow = () => {
@@ -25,39 +31,32 @@ export default function HomePage() {
     createWorkflow(name)
   }
 
-  // Calculate aggregate stats
-  const totalRuns = Object.keys(metrics).length
-  const totalCost = Object.values(metrics).reduce((acc, m) => acc + (m?.total_cost || 0), 0)
-  const avgLatency = Object.values(metrics).length > 0
-    ? Object.values(metrics).reduce((acc, m) => acc + (m?.avg_latency_ms || 0), 0) / Object.values(metrics).length
-    : 0
-
   const stats = [
     {
       title: 'Total Workflows',
-      value: workflowList.length.toString(),
+      value: dbStatus?.collections?.workflows?.toString() || workflowList.length.toString(),
       icon: Workflow,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
     },
     {
-      title: 'Total Runs',
-      value: totalRuns.toString(),
+      title: 'Global Tools',
+      value: dbStatus?.collections?.tools?.toString() || '0',
       icon: Zap,
       color: 'text-success',
       bgColor: 'bg-success/10',
     },
     {
-      title: 'Total Cost',
-      value: `$${totalCost.toFixed(2)}`,
-      icon: TrendingUp,
+      title: 'Total Executions',
+      value: dbStatus?.collections?.executions?.toString() || '0',
+      icon: Activity,
       color: 'text-warning',
       bgColor: 'bg-warning/10',
     },
     {
-      title: 'Avg Latency',
-      value: `${avgLatency.toFixed(0)}ms`,
-      icon: Clock,
+      title: 'RAG Sources',
+      value: dbStatus?.collections?.rag?.toString() || '0',
+      icon: TrendingUp,
       color: 'text-chart-2',
       bgColor: 'bg-chart-2/10',
     },

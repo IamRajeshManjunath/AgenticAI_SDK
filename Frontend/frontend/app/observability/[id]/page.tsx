@@ -44,141 +44,77 @@ import {
 import { cn } from '@/lib/utils'
 import type { TraceSpan, ExecutionMessage, HITLRequest } from '@/lib/types'
 
-// Mock data for demonstration
-const mockMessages: ExecutionMessage[] = [
-  {
-    id: '1',
-    timestamp: Date.now() - 5000,
-    type: 'thought',
-    agent_id: 'coordinator',
-    content: 'Analyzing the user request to determine the best approach...',
-  },
-  {
-    id: '2',
-    timestamp: Date.now() - 4000,
-    type: 'tool_call',
-    agent_id: 'coordinator',
-    content: 'Calling google_search tool',
-    metadata: { args: { query: 'latest AI developments 2024' } },
-  },
-  {
-    id: '3',
-    timestamp: Date.now() - 3000,
-    type: 'tool_result',
-    agent_id: 'coordinator',
-    content: 'Retrieved 10 relevant results from Google Search',
-    metadata: { results_count: 10 },
-  },
-  {
-    id: '4',
-    timestamp: Date.now() - 2000,
-    type: 'message',
-    agent_id: 'researcher',
-    content: 'Processing search results and extracting key information...',
-  },
-  {
-    id: '5',
-    timestamp: Date.now() - 1000,
-    type: 'thought',
-    agent_id: 'researcher',
-    content: 'Identified 3 major themes in the AI landscape: LLMs, multi-agent systems, and edge AI.',
-  },
-]
+import useSWR from 'swr'
 
-const mockTrace: TraceSpan = {
-  id: 'root',
-  name: 'Workflow Run',
-  start_time: Date.now() - 5000,
-  end_time: Date.now(),
-  duration_ms: 5000,
-  status: 'completed',
-  children: [
-    {
-      id: 'coord',
-      name: 'Coordinator Agent',
-      agent_id: 'coordinator',
-      start_time: Date.now() - 5000,
-      end_time: Date.now() - 2000,
-      duration_ms: 3000,
-      status: 'completed',
-      children: [
-        {
-          id: 'tool1',
-          name: 'google_search',
-          start_time: Date.now() - 4500,
-          end_time: Date.now() - 3500,
-          duration_ms: 1000,
-          status: 'completed',
-          children: [],
-        },
-      ],
-    },
-    {
-      id: 'research',
-      name: 'Researcher Agent',
-      agent_id: 'researcher',
-      start_time: Date.now() - 2000,
-      end_time: Date.now(),
-      duration_ms: 2000,
-      status: 'completed',
-      children: [],
-    },
-  ],
-}
+const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 export default function ObservabilityPage() {
   const params = useParams()
   const workflowId = params.id as string
-  const { workflows, metrics, executionStates, hitlRequests, addHITLRequest, resolveHITLRequest } = useWorkflowStore()
+  const { workflows, resolveHITLRequest } = useWorkflowStore()
   const workflow = workflows[workflowId]
   const feedRef = useRef<HTMLDivElement>(null)
   
   const [isRunning, setIsRunning] = useState(false)
-  const [messages, setMessages] = useState<ExecutionMessage[]>([])
-  const [trace, setTrace] = useState<TraceSpan | null>(null)
   const [showHITLModal, setShowHITLModal] = useState(false)
   const [hitlFeedback, setHitlFeedback] = useState('')
   const [currentHITL, setCurrentHITL] = useState<HITLRequest | null>(null)
   const [stateDrawerOpen, setStateDrawerOpen] = useState(false)
 
-  // Mock workflow state
-  const [workflowState, setWorkflowState] = useState({
-    scratchpad: {
-      search_results: ['result1', 'result2'],
-      current_step: 'analysis',
-      iteration: 3,
-    },
-    messages: mockMessages,
-    current_agent: 'researcher',
-    status: 'running' as const,
-  })
+  // Real Data Fetching
+  const { data: traceData, error: traceError } = useSWR(
+    `http://localhost:8000/api/v1/workflow/observability/traces/${workflowId}`,
+    fetcher,
+    { 
+      refreshInterval: (traceData && (traceData.status === 'completed' || traceData.status === 'failed')) 
+        ? 0 
+        : 2000 
+    }
+  )
 
-  // Simulated metrics
-  const currentMetrics = metrics[workflowId] || {
-    total_cost: 0.0234,
-    budget_limit: 1.0,
-    total_tokens: 4521,
-    prompt_tokens: 3200,
-    completion_tokens: 1321,
-    avg_latency_ms: 245,
-    consensus_score: 0.85,
+  const { data: metricsData } = useSWR(
+    `http://localhost:8000/api/v1/workflow/observability/metrics/${workflowId}`,
+    fetcher,
+    { refreshInterval: 5000 }
+  )
+
+  const currentMetrics = metricsData || {
+    total_cost: 0,
+    budget_limit: 100,
+    total_tokens: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    avg_latency_ms: 0,
+    consensus_score: 0,
   }
 
-  // Simulate running workflow
-  useEffect(() => {
-    if (isRunning) {
-      setMessages(mockMessages)
-      setTrace(mockTrace)
-      
-      // Scroll to bottom of feed
-      setTimeout(() => {
-        feedRef.current?.scrollTo({
-          top: feedRef.current.scrollHeight,
-          behavior: 'smooth',
-        })
-      }, 100)
+  const messages: ExecutionMessage[] = traceData?.messages || []
+  const trace: TraceSpan | null = traceData?.trace || null
+
+  // Handle run via API
+  const handleStartRun = async () => {
+    setIsRunning(true)
+    try {
+      await fetch('http://localhost:8000/api/v1/workflow/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workflow),
+      })
+    } catch (error) {
+      console.error('Run error:', error)
+      setIsRunning(false)
     }
-  }, [isRunning])
+  }
+
+  // Scroll to bottom of feed
+  useEffect(() => {
+    if (messages.length > 0) {
+      feedRef.current?.scrollTo({
+        top: feedRef.current.scrollHeight,
+        behavior: 'smooth',
+      })
+    }
+  }, [messages])
 
   // Simulate HITL trigger
   const handleSimulateHITL = () => {
@@ -263,7 +199,7 @@ export default function ObservabilityPage() {
             ) : (
               <Button
                 size="sm"
-                onClick={() => setIsRunning(true)}
+                onClick={handleStartRun}
                 className="gap-2 glow-primary-sm"
               >
                 <Play className="w-4 h-4" />
@@ -398,7 +334,7 @@ export default function ObservabilityPage() {
                   </div>
                   <TabsContent value="scratchpad" className="h-[150px] p-0 m-0">
                     <pre className="h-full overflow-auto scrollbar-thin p-4 bg-background/50 text-xs font-mono">
-                      {JSON.stringify(workflowState.scratchpad, null, 2)}
+                      {JSON.stringify(traceData?.scratchpad || {}, null, 2)}
                     </pre>
                   </TabsContent>
                   <TabsContent value="messages" className="h-[150px] p-0 m-0">

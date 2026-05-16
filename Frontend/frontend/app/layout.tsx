@@ -36,6 +36,8 @@ export const metadata: Metadata = {
   },
 }
 
+import { Toaster } from '@/components/ui/toaster'
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,6 +47,7 @@ export default function RootLayout({
     <html lang="en" className="dark bg-background">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
         {children}
+        <Toaster />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

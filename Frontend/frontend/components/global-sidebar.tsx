@@ -117,36 +117,42 @@ export function GlobalSidebar() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem onClick={() => setActiveWorkspace('')}>
+                  <DropdownMenuItem onClick={() => setActiveWorkspace(null as any)}>
                     All Workflows
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {workspaces.map((workspace) => (
-                    <div key={workspace.id} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
-                      <div 
-                        className="flex-1 cursor-pointer text-sm"
-                        onClick={() => setActiveWorkspace(workspace.id)}
-                      >
-                        {workspace.name}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    <DropdownMenuItem
+                      key={workspace.id}
+                      onClick={() => setActiveWorkspace(workspace.id)}
+                      className="flex items-center justify-between group"
+                    >
+                      <span className="truncate flex-1">{workspace.name}</span>
+                      <Trash2 
+                        className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity ml-2"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteWorkspace(workspace.id);
+                          if (confirm(`Are you sure you want to delete workspace "${workspace.name}"?`)) {
+                            deleteWorkspace(workspace.id);
+                          }
                         }}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
+                      />
+                    </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleCreateWorkspace}>
                     <Plus className="w-4 h-4 mr-2" />
                     Create Workspace
                   </DropdownMenuItem>
+                  {activeWorkspace && (
+                    <DropdownMenuItem onClick={() => {
+                      const newName = prompt('Enter new workspace name:', activeWorkspace.name)
+                      if (newName) updateWorkspace(activeWorkspace.id, { name: newName })
+                    }}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Rename Active Workspace
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -225,6 +231,13 @@ export function GlobalSidebar() {
                                     <Eye className="w-4 h-4 mr-2" />
                                     Observability
                                   </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => {
+                                  const newName = prompt('Enter new workflow name:', workflow.name)
+                                  if (newName) updateWorkflow(workflow.id, { name: newName })
+                                }}>
+                                  <Plus className="w-4 h-4 mr-2" />
+                                  Rename
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => duplicateWorkflow(workflow.id)}>
                                   <Copy className="w-4 h-4 mr-2" />

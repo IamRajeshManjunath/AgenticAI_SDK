@@ -91,6 +91,7 @@ interface WorkflowStore {
   // Workspace Actions
   createWorkspace: (name: string) => void
   setActiveWorkspace: (id: string) => void
+  updateWorkspace: (id: string, updates: Partial<Workspace>) => void
   deleteWorkspace: (id: string) => void
   
   // Workflow Actions
@@ -173,6 +174,14 @@ export const useWorkflowStore = create<WorkflowStore>()(
       },
 
       setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
+      
+      updateWorkspace: (id, updates) => {
+        set((state) => ({
+          workspaces: state.workspaces.map((w) =>
+            w.id === id ? { ...w, ...updates } : w
+          ),
+        }))
+      },
 
       deleteWorkspace: (id) => {
         set((state) => {

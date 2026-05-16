@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -7,8 +8,10 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Settings, Key, Bell, Shield, Database, CheckCircle2, AlertCircle } from 'lucide-react'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
+import { useToast } from '@/hooks/use-toast'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -75,6 +78,44 @@ function DatabaseStatus() {
 }
 
 export default function SettingsPage() {
+  const { toast } = useToast()
+  const [dbUri, setDbUri] = useState('')
+  const [provider, setProvider] = useState('postgres')
+  const [isConnecting, setIsConnecting] = useState(false)
+
+  const handleConnect = async () => {
+    setIsConnecting(true)
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/workflow/db/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, uri: dbUri }),
+      })
+      if (response.ok) {
+        mutate('http://localhost:8000/api/v1/workflow/db/status')
+        toast({
+          title: "Database Connected",
+          description: "Successfully connected to the database provider.",
+        })
+      } else {
+        toast({
+          title: "Connection Failed",
+          description: "Could not establish a connection to the database.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Connection error:', error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while connecting.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
   return (
     <DashboardLayout>
       <div className="p-6 md:p-8 space-y-8">
@@ -180,55 +221,65 @@ export default function SettingsPage() {
                   <DatabaseStatus />
                 </div>
 
-                <div className="border-t border-border pt-6 space-y-4">
-                  <h4 className="font-medium text-sm">Supported Providers</h4>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="db-provider">Select Provider</Label>
+                    <Select value={provider} onValueChange={setProvider}>
+                      <SelectTrigger id="db-provider">
+                        <SelectValue placeholder="Select a provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="postgres">PostgreSQL</SelectItem>
+                        <SelectItem value="supabase">Supabase</SelectItem>
+                        <SelectItem value="neon">Neon</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="db-uri">Database URI / Connection String</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="db-uri"
+                        type="password"
+                        placeholder="postgresql://user:password@localhost:5432/dbname"
+                        value={dbUri}
+                        onChange={(e) => setDbUri(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                      <Button 
+                        onClick={handleConnect} 
+                        disabled={isConnecting || !dbUri}
+                        className="shrink-0"
+                      >
+                        {isConnecting ? 'Connecting...' : 'Connect'}
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Sensitive credentials are encrypted and stored securely in the SDK gateway.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-6 space-y-4 opacity-50 pointer-events-none">
+                  <h4 className="font-medium text-sm text-muted-foreground">Quick Setup (Enterprise)</h4>
                   <div className="grid gap-4">
-                    <div className="p-4 rounded-lg border border-border bg-secondary/30">
+                    <div className="p-4 rounded-lg border border-border bg-secondary/30 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded bg-emerald-500/20 flex items-center justify-center">
                           <span className="text-emerald-500 font-bold text-sm">S</span>
                         </div>
                         <div>
-                          <p className="font-medium">Supabase</p>
-                          <p className="text-xs text-muted-foreground">
-                            Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+                          <p className="font-medium text-sm">Supabase One-Click</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Connect via OAuth
                           </p>
                         </div>
                       </div>
-                    </div>
-                    <div className="p-4 rounded-lg border border-border bg-secondary/30">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded bg-cyan-500/20 flex items-center justify-center">
-                          <span className="text-cyan-500 font-bold text-sm">N</span>
-                        </div>
-                        <div>
-                          <p className="font-medium">Neon</p>
-                          <p className="text-xs text-muted-foreground">
-                            Set NEON_DATABASE_URL or DATABASE_URL
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 rounded-lg border border-border bg-secondary/30">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center">
-                          <span className="text-blue-500 font-bold text-sm">P</span>
-                        </div>
-                        <div>
-                          <p className="font-medium">PostgreSQL</p>
-                          <p className="text-xs text-muted-foreground">
-                            Set POSTGRES_URL or DATABASE_URL
-                          </p>
-                        </div>
-                      </div>
+                      <Button variant="outline" size="sm" disabled>Connect</Button>
                     </div>
                   </div>
                 </div>
-
-                <p className="text-xs text-muted-foreground">
-                  The database adapter is selected automatically based on available environment variables. 
-                  Add your connection credentials in Vercel project settings or your .env.local file.
-                </p>
               </CardContent>
             </Card>
           </TabsContent>
