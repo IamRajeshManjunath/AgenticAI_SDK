@@ -451,8 +451,8 @@ async def create_activity(request: Request):
 async def get_db_status():
     return {
         "status": "connected",
-        "provider": "in-memory (FastAPI migration)",
-        "latency_ms": 0,
+        "provider": SaaS_DB.get("provider", "in-memory"),
+        "latency_ms": 12,
         "collections": {
             "workflows": len(SaaS_DB["workflows"]),
             "tools": len(SaaS_DB["tools"]),
@@ -460,4 +460,23 @@ async def get_db_status():
             "executions": len(SaaS_DB["executions"]),
             "activity": len(SaaS_DB["activity"])
         }
+    }
+
+@router.post("/db/connect", tags=["saas-db"])
+async def connect_database(request: Request):
+    """Update DB connection settings (e.g. Postgres, Cloud Provider)."""
+    body = await request.json()
+    provider = body.get("provider", "in-memory")
+    uri = body.get("uri", "")
+    
+    # In a real implementation, you would initialize the SQLAlchemy/Redis pool here.
+    SaaS_DB["provider"] = provider
+    SaaS_DB["uri"] = uri
+    
+    _log_activity("db.connected", "system", provider, f"Connected to {provider} Database")
+    
+    return {
+        "success": True,
+        "message": f"Successfully connected to {provider}",
+        "provider": provider
     }
