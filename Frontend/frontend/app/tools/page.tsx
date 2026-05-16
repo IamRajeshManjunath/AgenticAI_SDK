@@ -212,6 +212,36 @@ function ToolCard({ tool, onUpdate, onDelete }: ToolCardProps) {
             </div>
           </>
         )}
+
+        {tool.type === 'mcp' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">MCP Endpoint</Label>
+            <Input
+              value={tool.mcp_endpoint || ''}
+              onChange={(e) => onUpdate({ mcp_endpoint: e.target.value })}
+              className="mt-1 font-mono text-sm"
+              placeholder="e.g. npx -y @modelcontextprotocol/server-postgres"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              The system will automatically connect to this MCP server endpoint.
+            </p>
+          </div>
+        )}
+
+        {tool.type === 'function' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Function Code Snippet</Label>
+            <Textarea
+              value={tool.code_snippet || ''}
+              onChange={(e) => onUpdate({ code_snippet: e.target.value })}
+              className="mt-1 h-32 font-mono text-xs bg-black/50"
+              placeholder="def my_custom_tool(input_data):\n    return input_data * 2"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Write or paste your custom Python function here.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

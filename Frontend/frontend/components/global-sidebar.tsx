@@ -122,12 +122,25 @@ export function GlobalSidebar() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {workspaces.map((workspace) => (
-                    <DropdownMenuItem
-                      key={workspace.id}
-                      onClick={() => setActiveWorkspace(workspace.id)}
-                    >
-                      {workspace.name}
-                    </DropdownMenuItem>
+                    <div key={workspace.id} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
+                      <div 
+                        className="flex-1 cursor-pointer text-sm"
+                        onClick={() => setActiveWorkspace(workspace.id)}
+                      >
+                        {workspace.name}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteWorkspace(workspace.id);
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
                   ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleCreateWorkspace}>

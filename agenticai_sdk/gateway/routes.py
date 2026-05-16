@@ -286,3 +286,178 @@ def _serialize_messages(messages: list) -> list[dict[str, Any]]:
             entry["additional_kwargs"] = msg.additional_kwargs
         serialized.append(entry)
     return serialized
+
+
+# ── SaaS Backend Migration (FastAPI CRUD Endpoints) ───────────────────────────
+
+import datetime
+
+# In-memory database mock to replace Next.js API/DB layer
+SaaS_DB = {
+    "workflows": {},
+    "tools": {},
+    "rag": {},
+    "executions": {},
+    "activity": []
+}
+
+def _log_activity(action: str, resource_type: str, resource_id: str, resource_name: str, details: Any = None):
+    SaaS_DB["activity"].insert(0, {
+        "id": str(uuid.uuid4()),
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "resource_name": resource_name,
+        "details": details
+    })
+
+
+# --- Workflows CRUD ---
+@router.get("/workflows", tags=["saas-workflows"])
+async def get_workflows():
+    return list(SaaS_DB["workflows"].values())
+
+@router.post("/workflows", tags=["saas-workflows"])
+async def create_workflow(request: Request):
+    body = await request.json()
+    w_id = str(uuid.uuid4())
+    workflow = {
+        "id": w_id,
+        "name": body.get("name", "Untitled Workflow"),
+        "description": body.get("description"),
+        "status": body.get("status", "draft"),
+        "nodes": body.get("nodes", []),
+        "edges": body.get("edges", []),
+        "user_id": "user-1",
+        "settings": body.get("settings", {})
+    }
+    SaaS_DB["workflows"][w_id] = workflow
+    _log_activity("workflow.created", "workflow", w_id, workflow["name"])
+    return workflow
+
+@router.get("/workflows/{w_id}", tags=["saas-workflows"])
+async def get_workflow(w_id: str):
+    if w_id not in SaaS_DB["workflows"]:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return SaaS_DB["workflows"][w_id]
+
+@router.patch("/workflows/{w_id}", tags=["saas-workflows"])
+async def update_workflow(w_id: str, request: Request):
+    if w_id not in SaaS_DB["workflows"]:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    body = await request.json()
+    SaaS_DB["workflows"][w_id].update(body)
+    _log_activity("workflow.updated", "workflow", w_id, SaaS_DB["workflows"][w_id]["name"])
+    return SaaS_DB["workflows"][w_id]
+
+@router.delete("/workflows/{w_id}", tags=["saas-workflows"])
+async def delete_workflow(w_id: str):
+    if w_id not in SaaS_DB["workflows"]:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    name = SaaS_DB["workflows"][w_id]["name"]
+    del SaaS_DB["workflows"][w_id]
+    _log_activity("workflow.deleted", "workflow", w_id, name)
+    return {"success": True}
+
+
+# --- Tools CRUD ---
+@router.get("/tools", tags=["saas-tools"])
+async def get_tools():
+    return list(SaaS_DB["tools"].values())
+
+@router.post("/tools", tags=["saas-tools"])
+async def create_tool(request: Request):
+    body = await request.json()
+    t_id = str(uuid.uuid4())
+    tool = {
+        "id": t_id,
+        "name": body.get("name"),
+        "description": body.get("description", ""),
+        "type": body.get("type"),
+        "schema": body.get("schema", {"input": {}, "output": {}}),
+        "config": body.get("config", {}),
+        "is_active": body.get("is_active", True),
+        "user_id": "user-1"
+    }
+    SaaS_DB["tools"][t_id] = tool
+    _log_activity("tool.created", "tool", t_id, tool["name"], {"type": tool["type"]})
+    return tool
+
+
+# --- RAG CRUD ---
+@router.get("/rag", tags=["saas-rag"])
+async def get_rag_sources():
+    return list(SaaS_DB["rag"].values())
+
+@router.post("/rag", tags=["saas-rag"])
+async def create_rag_source(request: Request):
+    body = await request.json()
+    r_id = str(uuid.uuid4())
+    rag = {
+        "id": r_id,
+        "name": body.get("name"),
+        "description": body.get("description", ""),
+        "provider": body.get("provider"),
+        "config": body.get("config", {}),
+        "is_active": body.get("is_active", True),
+        "user_id": "user-1"
+    }
+    SaaS_DB["rag"][r_id] = rag
+    _log_activity("rag.created", "rag", r_id, rag["name"], {"provider": rag["provider"]})
+    return rag
+
+
+# --- Executions CRUD ---
+@router.get("/executions", tags=["saas-executions"])
+async def get_executions():
+    return list(SaaS_DB["executions"].values())
+
+@router.post("/executions", tags=["saas-executions"])
+async def create_execution(request: Request):
+    body = await request.json()
+    e_id = str(uuid.uuid4())
+    execution = {
+        "id": e_id,
+        "workflow_id": body.get("workflow_id"),
+        "status": body.get("status", "running"),
+        "started_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "inputs": body.get("inputs", {}),
+        "user_id": "user-1"
+    }
+    SaaS_DB["executions"][e_id] = execution
+    _log_activity("execution.started", "execution", e_id, f"Execution {e_id}")
+    return execution
+
+
+# --- Activity & DB Status ---
+@router.get("/activity", tags=["saas-activity"])
+async def get_activity():
+    return SaaS_DB["activity"]
+
+@router.post("/activity", tags=["saas-activity"])
+async def create_activity(request: Request):
+    body = await request.json()
+    _log_activity(
+        action=body.get("action", "unknown"),
+        resource_type=body.get("resource_type", "system"),
+        resource_id=body.get("resource_id", "none"),
+        resource_name=body.get("resource_name", "Unknown"),
+        details=body.get("details")
+    )
+    return {"success": True}
+
+@router.get("/db/status", tags=["saas-db"])
+async def get_db_status():
+    return {
+        "status": "connected",
+        "provider": "in-memory (FastAPI migration)",
+        "latency_ms": 0,
+        "collections": {
+            "workflows": len(SaaS_DB["workflows"]),
+            "tools": len(SaaS_DB["tools"]),
+            "rag": len(SaaS_DB["rag"]),
+            "executions": len(SaaS_DB["executions"]),
+            "activity": len(SaaS_DB["activity"])
+        }
+    }

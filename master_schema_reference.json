@@ -1,0 +1,170 @@
+{
+  "workflow_id": "master-reference-v1",
+  "name": "Master Reference Schema",
+  "description": "An exhaustive, end-to-end JSON schema containing every possible configuration switch and feature available in the AgenticAI SDK. Use this as a map for building the frontend UI.",
+
+  "tools": [
+    {
+      "tool_id": "google_search_api",
+      "name": "Google Search",
+      "description": "Search the web for real-time information.",
+      "type": "rest_api",
+      "config": {
+        "endpoint": "https://api.search.com/v1",
+        "method": "GET",
+        "api_key_env_var": "SEARCH_API_KEY"
+      }
+    }
+  ],
+
+  "rag_sources": [
+    {
+      "rag_id": "enterprise_kb",
+      "vector_db": "qdrant",
+      "connection_uri": "http://localhost:6333",
+      "api_key_env_var": "QDRANT_API_KEY",
+      "embedding_provider": "openai",
+      "embedding_model": "text-embedding-3-small",
+      "collection_name": "company_handbooks",
+      "top_k": 5,
+      "similarity_threshold": 0.75,
+      "hybrid_search": true
+    }
+  ],
+
+  "agents": [
+    {
+      "agent_id": "manager_agent",
+      "role": "Strategic Coordinator",
+      
+      "prompt_template": {
+        "template_id": "manager_prompt",
+        "template_string": "You are the manager for: {topic}. Delegate to specialists as needed.",
+        "input_variables": ["topic"]
+      },
+      
+      "llm": {
+        "provider": "openai",
+        "model_name": "gpt-4o",
+        "temperature": 0.1,
+        "max_tokens": 4096,
+        "api_key_env_var": "OPENAI_API_KEY"
+      },
+      
+      "sub_agents": [
+        "research_specialist", 
+        "writer_specialist"
+      ],
+      
+      "tools": [],
+      "rag_sources": [],
+      
+      "topology": {
+        "orchestration_mode": "model_driven"
+      }
+    },
+    {
+      "agent_id": "research_specialist",
+      "role": "Deep Technical Researcher",
+      
+      "prompt_template": {
+        "template_id": "researcher_prompt",
+        "template_string": "Research the topic thoroughly using your tools and internal knowledge.",
+        "input_variables": ["topic"]
+      },
+      
+      "llm": {
+        "provider": "anthropic",
+        "model_name": "claude-3-5-sonnet-latest",
+        "temperature": 0.3,
+        "api_key_env_var": "ANTHROPIC_API_KEY"
+      },
+      
+      "tools": [
+        "google_search_api"
+      ],
+      
+      "rag_sources": [
+        "enterprise_kb"
+      ],
+      
+      "fallback_llms": [
+        {
+          "provider": "openai",
+          "model_name": "gpt-4o-mini",
+          "temperature": 0.3,
+          "api_key_env_var": "OPENAI_API_KEY"
+        }
+      ],
+      
+      "middleware_config": {
+        "budget": {
+          "max_tokens_per_call": 2048,
+          "max_cost_per_workflow": 0.50,
+          "max_iterations": 5
+        },
+        "pii": {
+          "enabled": true,
+          "masking_level": "hash"
+        },
+        "injection_firewall": {
+          "enabled": true
+        }
+      },
+      
+      "topology": {
+        "orchestration_mode": "model_driven"
+      }
+    },
+    {
+      "agent_id": "writer_specialist",
+      "role": "Content Publisher",
+      
+      "prompt_template": {
+        "template_id": "writer_prompt",
+        "template_string": "Draft a report based on the provided research context.",
+        "input_variables": ["research"]
+      },
+      
+      "llm": {
+        "provider": "openai",
+        "model_name": "gpt-4o",
+        "temperature": 0.5,
+        "api_key_env_var": "OPENAI_API_KEY"
+      },
+      
+      "consensus_config": {
+        "enabled": true,
+        "instances": 3,
+        "threshold": 0.7
+      },
+      
+      "topology": {
+        "orchestration_mode": "agent_driven",
+        "reasoning_steps": [
+          "analyze_research",
+          "draft_outline",
+          "write_final_content"
+        ]
+      }
+    }
+  ],
+
+  "edges": [
+    {
+      "source": "manager_agent",
+      "target": "__end__",
+      "condition": "state['next_step'] == 'complete'"
+    }
+  ],
+
+  "hitl": {
+    "interruption_points": [
+      "manager_agent"
+    ],
+    "approval_timeout": 1800,
+    "notification_channel": "slack"
+  },
+
+  "entry_point": "manager_agent"
+}

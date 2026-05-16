@@ -8,6 +8,8 @@ export interface ToolConfig {
   api_endpoint?: string
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   api_key_env_var?: string
+  mcp_endpoint?: string
+  code_snippet?: string
 }
 
 export interface RAGSourceConfig {
