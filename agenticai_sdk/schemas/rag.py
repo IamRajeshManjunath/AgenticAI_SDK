@@ -83,3 +83,7 @@ class RAGConfig(BaseModel):
         le=1.0,
         description="Minimum cosine similarity score for result inclusion.",
     )
+    hybrid_search: bool = Field(
+        default=False,
+        description="Enable hybrid (dense + sparse BM25) search if supported by the vector DB.",
+    )

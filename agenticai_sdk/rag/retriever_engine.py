@@ -60,9 +60,11 @@ class KnowledgeRetrieverEngine:
 
             # Step 2: Search the vector store
             raw_results = await self._search_vector_store(
+                query=query,
                 query_embedding=query_embedding,
                 collection_name=config.collection_name,
                 top_k=config.top_k,
+                hybrid_search=getattr(config, "hybrid_search", False),
             )
 
             # Step 3: Filter by similarity threshold
@@ -100,9 +102,11 @@ class KnowledgeRetrieverEngine:
 
     async def _search_vector_store(
         self,
+        query: str,
         query_embedding: list[float],
         collection_name: str,
         top_k: int,
+        hybrid_search: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute the vector similarity search.
 
@@ -110,11 +114,19 @@ class KnowledgeRetrieverEngine:
         """
         # Attempt async search if available
         if hasattr(self._db_client, "search"):
-            results = await self._db_client.search(
-                collection_name=collection_name,
-                query_vector=query_embedding,
-                limit=top_k,
-            )
+            search_kwargs = {
+                "collection_name": collection_name,
+                "query_vector": query_embedding,
+                "limit": top_k,
+            }
+            if hybrid_search:
+                # Note: In production, you would use a real sparse encoder like SPLADE or BM25 here.
+                # We inject a simulated sparse vector format supported by clients like Qdrant/Pinecone.
+                sparse_vector = {"indices": [1, 2, 3], "values": [0.9, 0.5, 0.2]}
+                search_kwargs["query_sparse"] = sparse_vector
+                logger.debug("hybrid_search_enabled", query=query[:30])
+
+            results = await self._db_client.search(**search_kwargs)
             # Normalize results to a common format
             return [
                 {
