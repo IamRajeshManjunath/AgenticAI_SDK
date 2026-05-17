@@ -80,3 +80,11 @@ class AgentNodeConfig(BaseModel):
         default=None,
         description="Per-agent middleware overrides (budget, PII, injection firewall, compression).",
     )
+    input_schema: dict | None = Field(
+        default=None,
+        description="JSON schema describing the required input format/variables for this agent.",
+    )
+    output_schema: dict | None = Field(
+        default=None,
+        description="JSON schema dictating the structured output format for this agent.",
+    )

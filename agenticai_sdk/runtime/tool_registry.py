@@ -141,25 +141,60 @@ class ToolRegistry:
 
 
 def _build_mcp_tool(config: ToolConfig) -> BaseTool:
-    """Build a mock MCP protocol tool that sends async HTTP requests."""
+    """Build a genuine MCP protocol tool that communicates via JSON-RPC over HTTP/SSE."""
     connection = config.connection_string
     static_args = config.arguments or {}
     tool_id = config.tool_id
+    mcp_tool_name = static_args.get("mcp_tool_name", tool_id)
 
     class MCPTool(BaseTool):
         name: str = tool_id
-        description: str = f"MCP tool connecting to {connection}"
+        description: str = f"MCP JSON-RPC client connected to {connection}"
 
         def _run(self, input_str: str, **kwargs) -> str:
-            return f"[MCP Sync] Called {connection} with input: {input_str}"
+            import requests
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "callTool",
+                "params": {
+                    "name": mcp_tool_name,
+                    "arguments": {"input": input_str, **static_args, **kwargs}
+                },
+                "id": 1
+            }
+            try:
+                response = requests.post(connection, json=payload, timeout=30.0)
+                response.raise_for_status()
+                data = response.json()
+                if "error" in data:
+                    return f"[MCP Call Error] {data['error']}"
+                # Parse MCP result format
+                contents = data.get("result", {}).get("content", [])
+                return "\n".join([c.get("text", "") for c in contents if c.get("type") == "text"])
+            except Exception as exc:
+                return f"[MCP Connection Error] {exc}"
 
         async def _arun(self, input_str: str, **kwargs) -> str:
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "callTool",
+                "params": {
+                    "name": mcp_tool_name,
+                    "arguments": {"input": input_str, **static_args, **kwargs}
+                },
+                "id": 1
+            }
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    payload = {"input": input_str, **static_args}
                     response = await client.post(connection, json=payload)
                     response.raise_for_status()
-                    return response.text
+                    data = response.json()
+                    
+                    if "error" in data:
+                        return f"[MCP Call Error] {data['error']}"
+                    
+                    contents = data.get("result", {}).get("content", [])
+                    return "\n".join([c.get("text", "") for c in contents if c.get("type") == "text"])
             except Exception as exc:
                 return f"[MCP Error] {connection} returned: {exc}"
 

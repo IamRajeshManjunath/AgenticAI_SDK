@@ -47,6 +47,35 @@ class ActivityLog(Base):
     details = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class WorkflowTrace(Base):
+    """Deep observability mapping for executed workflow traces."""
+    __tablename__ = "workflow_traces"
+
+    id = Column(String, primary_key=True, index=True)
+    workflow_id = Column(String, ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
+    trace_id = Column(String, index=True)
+    duration_ms = Column(Float)
+    total_tokens = Column(Integer)
+    cost_usd = Column(Float)
+    error_count = Column(Integer)
+    span_tree = Column(JSON) # Serialized full trace tree
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    workflow = relationship("Workflow")
+
+class SchemaAuditTrail(Base):
+    """Immutable audit trail recording exact node payloads and schema enforcement actions."""
+    __tablename__ = "schema_audit_trails"
+
+    id = Column(String, primary_key=True, index=True)
+    agent_id = Column(String, index=True)
+    direction = Column(String)  # 'incoming' or 'outgoing'
+    payload = Column(JSON)      # The exact data
+    schema_definition = Column(JSON) # The schema it was validated against
+    is_valid = Column(Integer)  # 1 for valid, 0 for violation
+    violation_error = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class BillingData(Base):
     __tablename__ = "billing_data"
 
