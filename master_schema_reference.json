@@ -14,6 +14,26 @@
         "method": "GET",
         "api_key_env_var": "SEARCH_API_KEY"
       }
+    },
+    {
+      "tool_id": "custom_analysis_script",
+      "name": "Python Logic",
+      "description": "Execute arbitrary Python logic strings.",
+      "type": "custom_python",
+      "config": {
+        "code": "def custom_analysis_script(data: list) -> float: return sum(data) / len(data)",
+        "arguments": {}
+      }
+    },
+    {
+      "tool_id": "weather_mcp_client",
+      "name": "Weather MCP",
+      "description": "JSON-RPC client for Model Context Protocol servers.",
+      "type": "mcp",
+      "config": {
+        "connection_string": "http://mcp.internal:8000",
+        "arguments": { "mcp_tool_name": "fetch_temp" }
+      }
     }
   ],
 
@@ -36,13 +56,16 @@
     {
       "agent_id": "manager_agent",
       "role": "Strategic Coordinator",
-      
+      "input_schema": {
+        "type": "object",
+        "properties": { "topic": { "type": "string" } },
+        "required": ["topic"]
+      },
       "prompt_template": {
         "template_id": "manager_prompt",
         "template_string": "You are the manager for: {topic}. Delegate to specialists as needed.",
         "input_variables": ["topic"]
       },
-      
       "llm": {
         "provider": "openai",
         "model_name": "gpt-4o",
@@ -50,15 +73,9 @@
         "max_tokens": 4096,
         "api_key_env_var": "OPENAI_API_KEY"
       },
-      
-      "sub_agents": [
-        "research_specialist", 
-        "writer_specialist"
-      ],
-      
+      "sub_agents": ["research_specialist", "writer_specialist"],
       "tools": [],
       "rag_sources": [],
-      
       "topology": {
         "orchestration_mode": "model_driven"
       }
@@ -66,28 +83,19 @@
     {
       "agent_id": "research_specialist",
       "role": "Deep Technical Researcher",
-      
       "prompt_template": {
         "template_id": "researcher_prompt",
         "template_string": "Research the topic thoroughly using your tools and internal knowledge.",
         "input_variables": ["topic"]
       },
-      
       "llm": {
         "provider": "anthropic",
         "model_name": "claude-3-5-sonnet-latest",
         "temperature": 0.3,
         "api_key_env_var": "ANTHROPIC_API_KEY"
       },
-      
-      "tools": [
-        "google_search_api"
-      ],
-      
-      "rag_sources": [
-        "enterprise_kb"
-      ],
-      
+      "tools": ["google_search_api", "weather_mcp_client"],
+      "rag_sources": ["enterprise_kb"],
       "fallback_llms": [
         {
           "provider": "openai",
@@ -96,7 +104,6 @@
           "api_key_env_var": "OPENAI_API_KEY"
         }
       ],
-      
       "middleware_config": {
         "budget": {
           "max_tokens_per_call": 2048,
@@ -107,38 +114,44 @@
           "enabled": true,
           "masking_level": "hash"
         },
+        "rate_limiter": {
+          "max_requests_per_minute": 10
+        },
         "injection_firewall": {
           "enabled": true
         }
       },
-      
       "topology": {
         "orchestration_mode": "model_driven"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "research_content": { "type": "string" },
+          "source_urls": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["research_content"]
       }
     },
     {
       "agent_id": "writer_specialist",
       "role": "Content Publisher",
-      
       "prompt_template": {
         "template_id": "writer_prompt",
         "template_string": "Draft a report based on the provided research context.",
         "input_variables": ["research"]
       },
-      
       "llm": {
         "provider": "openai",
         "model_name": "gpt-4o",
         "temperature": 0.5,
         "api_key_env_var": "OPENAI_API_KEY"
       },
-      
       "consensus_config": {
         "enabled": true,
         "instances": 3,
         "threshold": 0.7
       },
-      
       "topology": {
         "orchestration_mode": "agent_driven",
         "reasoning_steps": [
@@ -154,14 +167,16 @@
     {
       "source": "manager_agent",
       "target": "__end__",
-      "condition": "state['next_step'] == 'complete'"
+      "condition": {
+        "field": "next_step",
+        "operator": "==",
+        "value": "finished"
+      }
     }
   ],
 
   "hitl": {
-    "interruption_points": [
-      "manager_agent"
-    ],
+    "interruption_points": ["manager_agent"],
     "approval_timeout": 1800,
     "notification_channel": "slack"
   },

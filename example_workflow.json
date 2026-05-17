@@ -13,6 +13,28 @@
         "method": "GET",
         "api_key_env_var": "SEARCH_API_KEY"
       }
+    },
+    {
+      "tool_id": "data_cleaner",
+      "name": "Data Cleaner",
+      "description": "Custom Python function to clean research text",
+      "type": "custom_python",
+      "config": {
+        "code": "def data_cleaner(text: str) -> str:\n    return text.strip().replace('\\n', ' ')",
+        "arguments": {}
+      }
+    },
+    {
+      "tool_id": "mcp_weather",
+      "name": "MCP Weather",
+      "description": "Model Context Protocol weather tool",
+      "type": "mcp",
+      "config": {
+        "connection_string": "http://mcp-server:8080/weather",
+        "arguments": {
+          "mcp_tool_name": "get_current_weather"
+        }
+      }
     }
   ],
   "rag_sources": [
@@ -42,6 +64,13 @@
       "sub_agents": ["researcher", "writer"],
       "topology": {
         "orchestration_mode": "model_driven"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string" }
+        },
+        "required": ["topic"]
       }
     },
     {
@@ -57,7 +86,7 @@
         "model_name": "claude-3-5-sonnet-latest",
         "api_key_env_var": "ANTHROPIC_API_KEY"
       },
-      "tools": ["google_search"],
+      "tools": ["google_search", "data_cleaner", "mcp_weather"],
       "rag_sources": ["internal_docs"],
       "fallback_llms": [
         {
@@ -77,10 +106,21 @@
         },
         "injection_firewall": {
           "enabled": true
+        },
+        "rate_limiter": {
+          "max_requests_per_minute": 10
         }
       },
       "topology": {
         "orchestration_mode": "model_driven"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "research_notes": { "type": "string" },
+          "sources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["research_notes"]
       }
     },
     {
