@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'agenticai_sdk'
+    static_configs:
+      # Scrape the host machine where FastAPI runs (Docker uses host.docker.internal to reach localhost)
+      - targets: ['host.docker.internal:8000']
+        labels:
+          application: 'agenticai_sdk'

@@ -17,6 +17,12 @@ pinecone-client<7.0,>=4.0
 chromadb<1.0,>=0.5
 faiss-cpu<2.0,>=1.8
 tiktoken<1.0,>=0.7
+sqlalchemy<3.0,>=2.0
+boto3<2.0,>=1.34
+prometheus-client<1.0,>=0.20
+opentelemetry-api<2.0,>=1.24
+opentelemetry-sdk<2.0,>=1.24
+opentelemetry-instrumentation-fastapi<1.0,>=0.45b0
 
 [dev]
 pytest>=8.0

@@ -447,3 +447,12 @@ async def get_activity(db: Session = Depends(get_session)):
     logs = db.query(ActivityLog).order_by(ActivityLog.created_at.desc()).limit(50).all()
     return [{"id": L.id, "action": L.event_type, "details": L.details, "timestamp": L.created_at} for L in logs]
 
+
+# --- Observability ---
+from fastapi import Response
+
+@router.get("/metrics", tags=["observability"])
+async def get_metrics():
+    """Expose Prometheus metrics for Grafana scraping."""
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

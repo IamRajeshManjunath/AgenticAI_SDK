@@ -87,6 +87,14 @@ class TraceContext:
         self._spans: dict[str, TraceSpan] = {}
         self._root_span_id: str | None = None
         self._start_time = time.perf_counter()
+        
+        # OTel dictionary to keep track of active OTel spans alongside our SQL spans
+        self._otel_spans = {}
+        try:
+            from opentelemetry import trace
+            self._tracer = trace.get_tracer(__name__)
+        except ImportError:
+            self._tracer = None
 
     def add_span(self, name: str, span_type: str = "generic",
                  parent_id: str | None = None, metadata: dict | None = None) -> str:
@@ -103,6 +111,16 @@ class TraceContext:
         if self._root_span_id is None:
             self._root_span_id = span.span_id
 
+        # Start OTel Span
+        if self._tracer:
+            # We don't have explicit context propagation here, so we just start a span
+            otel_span = self._tracer.start_span(name)
+            otel_span.set_attribute("span_type", span_type)
+            otel_span.set_attribute("trace_id", self.trace_id)
+            for k, v in (metadata or {}).items():
+                otel_span.set_attribute(f"meta.{k}", str(v))
+            self._otel_spans[span.span_id] = otel_span
+
         return span.span_id
 
     def end_span(self, span_id: str, result: dict | None = None, error: str | None = None) -> None:
@@ -115,6 +133,19 @@ class TraceContext:
         span.error = error
         if result:
             span.metadata.update(result)
+
+        # End OTel Span
+        if span_id in self._otel_spans:
+            otel_span = self._otel_spans.pop(span_id)
+            if error:
+                try:
+                    from opentelemetry.trace.status import Status, StatusCode
+                    otel_span.set_status(Status(StatusCode.ERROR, description=error))
+                except ImportError:
+                    pass
+            for k, v in (result or {}).items():
+                otel_span.set_attribute(f"result.{k}", str(v))
+            otel_span.end()
 
     def build_report(self) -> TraceReport:
         """Build the final trace report with computed aggregates."""

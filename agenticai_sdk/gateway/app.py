@@ -53,6 +53,28 @@ def _configure_logging(log_level: str = "INFO") -> None:
     )
 
 
+# ── OpenTelemetry configuration ───────────────────────────────────────────────
+
+def _configure_opentelemetry() -> None:
+    """Configure OpenTelemetry Tracer Provider and exporters."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+
+        resource = Resource.create({SERVICE_NAME: "agenticai-sdk-gateway"})
+        provider = TracerProvider(resource=resource)
+        # For simplicity, we just export to console right now. 
+        # In a real environment, this would export to Tempo/Jaeger via OTLP.
+        processor = BatchSpanProcessor(ConsoleSpanExporter())
+        provider.add_span_processor(processor)
+        trace.set_tracer_provider(provider)
+        structlog.get_logger(__name__).info("opentelemetry_configured")
+    except ImportError:
+        structlog.get_logger(__name__).warning("opentelemetry_not_installed")
+
+
 # ── App factory ───────────────────────────────────────────────────────────────
 
 
@@ -62,6 +84,7 @@ from agenticai_sdk.db import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _configure_opentelemetry()
     yield
 
 def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None) -> FastAPI:
@@ -103,6 +126,12 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        pass
 
     # ── Routes ───────────────────────────────────────────────────────────
     app.include_router(router)
