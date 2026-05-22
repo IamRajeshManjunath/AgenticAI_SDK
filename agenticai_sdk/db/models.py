@@ -87,3 +87,34 @@ class BillingData(Base):
     period_end = Column(DateTime(timezone=True))
     metrics = Column(JSON) # e.g. token usage
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CronJob(Base):
+    __tablename__ = "cron_jobs"
+
+    id = Column(String, primary_key=True, index=True)
+    cron_expression = Column(String, nullable=False) # e.g. "*/5 * * * *"
+    target_type = Column(String, nullable=False)     # "agent" | "workflow"
+    target_id = Column(String, nullable=False)       # The workflow_id or agent_id
+    payload = Column(JSON, nullable=True)            # Execution state input
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    next_run_at = Column(DateTime(timezone=True), index=True, nullable=False)
+    status = Column(String, default="active")        # "active" | "paused" | "terminated"
+    locked_by = Column(String, nullable=True)        # Active instance name
+    locked_until = Column(DateTime(timezone=True), nullable=True) # Lock lease duration
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class IntegrationConnection(Base):
+    __tablename__ = "integration_connections"
+
+    id = Column(String, primary_key=True, index=True) # e.g. "workspace_id:slack"
+    workspace_id = Column(String, index=True, nullable=False)
+    integration_type = Column(String, nullable=False) # "slack", "outlook", "teams", "whatsapp"
+    name = Column(String, nullable=False)
+    auth_state = Column(JSON, nullable=False)         # { access_token, webhook_url, etc }
+    rate_limits = Column(JSON, nullable=True)         # { max_calls_per_minute }
+    is_active = Column(Integer, default=1)            # 1 for active, 0 for inactive
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+

@@ -32,6 +32,12 @@ from agenticai_sdk.gateway.routes import router
 # ── Structlog configuration ───────────────────────────────────────────────────
 
 
+def _add_logger_name_safe(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    if hasattr(logger, "name"):
+        event_dict["logger"] = logger.name
+    return event_dict
+
+
 def _configure_logging(log_level: str = "INFO") -> None:
     """Configure structlog for structured JSON output."""
     structlog.configure(
@@ -39,7 +45,7 @@ def _configure_logging(log_level: str = "INFO") -> None:
             structlog.contextvars.merge_contextvars,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
+            _add_logger_name_safe,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),

@@ -7,6 +7,7 @@ Base = declarative_base()
 # Multi-DB architecture supporting routing different stages to different destinations
 _engines: dict[str, Engine] = {}
 _SessionLocal = None
+engine: Engine | None = None
 
 def init_db(core_db_url: str | None = None, routing_map: dict[str, str] | None = None):
     """
@@ -18,7 +19,7 @@ def init_db(core_db_url: str | None = None, routing_map: dict[str, str] | None =
                      For example, you can route 'ActivityLog' and 'WorkflowTrace' to
                      a data warehouse or ClickHouse database URL.
     """
-    global _engines, _SessionLocal
+    global _engines, _SessionLocal, engine
     
     # Setup primary core engine
     actual_url = core_db_url or os.getenv("AGENTICAI_DB_URL", "sqlite:///agenticai.db")
@@ -27,6 +28,7 @@ def init_db(core_db_url: str | None = None, routing_map: dict[str, str] | None =
         echo=False, 
         connect_args={"check_same_thread": False} if "sqlite" in actual_url else {}
     )
+    engine = _engines["core"]
     
     # Establish bound routing for specialized tables mapping
     binds = {}

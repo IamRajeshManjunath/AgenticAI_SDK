@@ -239,8 +239,8 @@ class TestWorkflowSchema:
         if example_path.exists():
             data = json.loads(example_path.read_text())
             schema = WorkflowSchema(**data)
-            assert schema.workflow_id == "research-and-report-v1"
-            assert len(schema.agents) == 2
+            assert schema.workflow_id == "enterprise-hierarchy-v2"
+            assert len(schema.agents) == 3
             assert len(schema.tools) == 3
 
 

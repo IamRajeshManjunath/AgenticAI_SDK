@@ -252,7 +252,25 @@ class Orchestrator:
         resolved_llm = self._llm_factory.create(agent_config.llm)
 
         # Resolve primary tools
-        resolved_tools = list(self._tool_registry.get_tools_for_agent(agent_config.tools))
+        # Filter out integration tool IDs from standard registry resolution to prevent ToolResolutionError
+        standard_tool_ids = [
+            tid for tid in agent_config.tools 
+            if tid not in ("send_slack_message", "send_teams_message", "send_outlook_email", "send_whatsapp_message")
+        ]
+        resolved_tools = list(self._tool_registry.get_tools_for_agent(standard_tool_ids))
+
+        # ── Resolve Integration Registry Tools ──────────────────────────
+        try:
+            workspace_id = getattr(schema, "workspace_id", None) or "default_workspace"
+            from agenticai_sdk.runtime.integration_registry import IntegrationRegistry  # noqa: PLC0415
+            registry = IntegrationRegistry(workspace_id=workspace_id)
+            integration_tools = registry.get_tools()
+            for itool in integration_tools:
+                if itool.name in agent_config.tools or "integrations" in agent_config.tools:
+                    resolved_tools.append(itool)
+                    logger.debug("integration_tool_bound", agent_id=agent_config.agent_id, tool=itool.name)
+        except Exception as itool_exc:
+            logger.warning("integration_tools_binding_failed", error=str(itool_exc))
 
         # ── Handle Sub-Agents (Hierarchy) ─────────────────────────────────
         if agent_config.sub_agents:
@@ -371,6 +389,22 @@ class Orchestrator:
                                 error=str(exc),
                             )
 
+                # ── Apply dynamic skills from SKILLS.md ─────────────────
+                import copy
+                import os
+                local_config = agent_config
+                try:
+                    from agenticai_sdk.runtime.skills_parser import SkillsParser  # noqa: PLC0415
+                    skills_file = "SKILLS.md"
+                    if os.path.exists(skills_file):
+                        skills = SkillsParser.parse_file(skills_file)
+                        local_config = copy.deepcopy(agent_config)
+                        local_config = SkillsParser.apply_skills_to_agent_config(
+                            agent_id, skills, state, local_config
+                        )
+                except Exception as skills_exc:
+                    logger.warning("skills_injection_failed", agent_id=agent_id, error=str(skills_exc))
+
                 # ── Build middleware context ───────────────────────────
                 mw_context = MiddlewareContext(
                     payload=dict(state),
@@ -380,10 +414,14 @@ class Orchestrator:
                     workflow_id=workflow_id,
                     trace_id=trace_id,
                 )
-                mw_context.metadata["model_name"] = agent_config.llm.model_name
+                mw_context.metadata["model_name"] = local_config.llm.model_name
 
                 # ── Run before-middleware ──────────────────────────────
-                mw_context = await middleware_pipeline.run_before(mw_context)
+                if local_config != agent_config:
+                    dynamic_pipeline = self._build_middleware_pipeline(local_config)
+                    mw_context = await dynamic_pipeline.run_before(mw_context)
+                else:
+                    mw_context = await middleware_pipeline.run_before(mw_context)
 
                 # ── Execute agent (with fallback / consensus) ─────────
                 effective_docs = runtime_docs if runtime_docs else retrieved_docs
@@ -391,7 +429,7 @@ class Orchestrator:
                 if use_consensus:
                     # Consensus execution
                     consensus_result = await consensus_broker.execute_consensus(
-                        agent_config=agent_config,
+                        agent_config=local_config,
                         state=state,
                         runner_factory=deep_agent_factory,
                         resolved_llm=resolved_llm,
@@ -407,7 +445,7 @@ class Orchestrator:
                 elif use_fallback:
                     # Fallback routing
                     result = await fallback_router.execute_with_fallback(
-                        agent_config=agent_config,
+                        agent_config=local_config,
                         state=state,
                         runner_factory=deep_agent_factory,
                         primary_llm=resolved_llm,
@@ -417,7 +455,7 @@ class Orchestrator:
                 else:
                     # Standard execution
                     current_runner = deep_agent_factory.create_deep_agent(
-                        config=agent_config,
+                        config=local_config,
                         resolved_llm=resolved_llm,
                         resolved_tools=resolved_tools,
                         retrieved_docs=effective_docs,
@@ -426,7 +464,11 @@ class Orchestrator:
 
                 # ── Run after-middleware ───────────────────────────────
                 mw_context.payload = result
-                mw_context = await middleware_pipeline.run_after(mw_context)
+                if local_config != agent_config:
+                    dynamic_pipeline = self._build_middleware_pipeline(local_config)
+                    mw_context = await dynamic_pipeline.run_after(mw_context)
+                else:
+                    mw_context = await middleware_pipeline.run_after(mw_context)
                 result = mw_context.payload
 
                 # ── Merge middleware metadata and RAG context ─────────

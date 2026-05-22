@@ -62,7 +62,7 @@ class RAGConfig(BaseModel):
         description="Embedding provider (openai, huggingface).",
     )
     embedding_model: str = Field(
-        ...,
+        default="text-embedding-3-small",
         min_length=1,
         description="Embedding model identifier (e.g. text-embedding-3-small).",
     )

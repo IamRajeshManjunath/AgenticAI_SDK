@@ -26,6 +26,7 @@ agenticai_sdk/middleware/base.py
 agenticai_sdk/middleware/budget_guardrails.py
 agenticai_sdk/middleware/context_compression.py
 agenticai_sdk/middleware/pii_masking.py
+agenticai_sdk/middleware/prometheus_metrics.py
 agenticai_sdk/middleware/prompt_injection_firewall.py
 agenticai_sdk/middleware/rate_limiter.py
 agenticai_sdk/middleware/schema_validation.py
