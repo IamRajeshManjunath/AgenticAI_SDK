@@ -454,5 +454,69 @@ from fastapi import Response
 @router.get("/metrics", tags=["observability"])
 async def get_metrics():
     """Expose Prometheus metrics for Grafana scraping."""
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    try:
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="prometheus_client is not installed. Run: pip install prometheus-client",
+        )
+
+
+# --- Upstream Master Agent ---
+from Master_agent.agent import StructuredMasterAgent
+
+_master_agent = StructuredMasterAgent()
+
+class MasterGenerateRequest(BaseModel):
+    prompt: str
+
+@router.post("/master/generate", tags=["master-agent"])
+async def master_generate(body: MasterGenerateRequest):
+    try:
+        proposal = _master_agent.generate_proposal(body.prompt)
+        return {"success": True, "proposal": proposal}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Master Agent generation failed: {str(e)}"
+        )
+
+@router.post("/master/compile", tags=["master-agent"])
+async def master_compile(workflow_schema: WorkflowSchema, db: Session = Depends(get_session)):
+    try:
+        # Validate & compile via downstream SDK compiler
+        app = await _orchestrator.compile(workflow_schema)
+        
+        # Save or update the workflow in the database
+        w = db.query(Workflow).filter(Workflow.id == workflow_schema.workflow_id).first()
+        if w:
+            w.name = workflow_schema.name
+            w.description = workflow_schema.description or ""
+            w.config = workflow_schema.model_dump()
+        else:
+            w = Workflow(
+                id=workflow_schema.workflow_id,
+                name=workflow_schema.name,
+                description=workflow_schema.description or "",
+                config=workflow_schema.model_dump()
+            )
+            db.add(w)
+        db.commit()
+        
+        _log_activity(
+            db, "workflow.master_compiled", "workflow",
+            workflow_schema.workflow_id, workflow_schema.name
+        )
+        
+        return {
+            "success": True,
+            "workflow_id": workflow_schema.workflow_id,
+            "message": "Workflow successfully compiled and persisted."
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Downstream compilation failed: {str(e)}"
+        )

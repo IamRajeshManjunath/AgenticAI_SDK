@@ -80,6 +80,7 @@ class LLMClientFactory:
                 env_var=config.api_key_env_var,
                 provider=config.provider.value,
             )
+            return "mock-key"
         return key
 
     def _create_openai(self, config: LLMConfig, api_key: str | None) -> BaseChatModel:

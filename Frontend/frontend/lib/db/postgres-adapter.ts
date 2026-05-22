@@ -132,12 +132,13 @@ export class PostgresAdapter implements DatabaseAdapter {
       const sql = neon(this.connectionString);
       this.client = {
         query: async <T>(text: string, params?: unknown[]) => {
-          const rows = await sql(text, params as never[]) as T[];
+          const rows = await sql(text as unknown as TemplateStringsArray, ...(params ?? [])) as T[];
           return { rows, rowCount: rows.length };
         },
       };
     } else {
       // Use standard pg for Supabase or other Postgres
+      // @ts-expect-error - @types/pg not installed
       const { Pool } = await import('pg');
       const pool = new Pool({ connectionString: this.connectionString });
       this.client = pool;

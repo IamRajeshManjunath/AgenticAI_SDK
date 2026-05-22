@@ -614,7 +614,7 @@ export function AgentConfigSidebar({
                       onValueChange={(value) =>
                         handleUpdate({
                           pii_guardrails: {
-                            ...agent.pii_guardrails,
+                            enabled: agent.pii_guardrails?.enabled ?? false,
                             masking_level: value as 'hash' | 'partial' | 'full',
                           },
                         })
@@ -698,8 +698,9 @@ export function AgentConfigSidebar({
                         onValueChange={([value]) =>
                           handleUpdate({
                             consensus_config: {
-                              ...agent.consensus_config,
+                              enabled: agent.consensus_config?.enabled ?? false,
                               num_instances: value,
+                              agreement_threshold: agent.consensus_config?.agreement_threshold ?? 0.7,
                             },
                           })
                         }
@@ -724,7 +725,8 @@ export function AgentConfigSidebar({
                         onValueChange={([value]) =>
                           handleUpdate({
                             consensus_config: {
-                              ...agent.consensus_config,
+                              enabled: agent.consensus_config?.enabled ?? false,
+                              num_instances: agent.consensus_config?.num_instances ?? 3,
                               agreement_threshold: value / 100,
                             },
                           })
