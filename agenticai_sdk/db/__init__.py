@@ -1,15 +1,42 @@
-# agenticai_sdk/db/__init__.py
 from .database import engine, get_session, Base, init_db
-from .models import Workspace, Workflow, Tool, ActivityLog, BillingData
+from .models import (
+    User,
+    Plan,
+    Workspace,
+    WorkspaceMember,
+    ApiKey,
+    Workflow,
+    Tool,
+    ActivityLog,
+    BillingData,
+    WorkflowTrace,
+    SchemaAuditTrail,
+    CronJob,
+    RAGSource,
+    IntegrationConnection,
+    Policy,
+    PolicyAttachment,
+)
 
 __all__ = [
     "engine",
     "get_session",
     "Base",
     "init_db",
+    "User",
+    "Plan",
     "Workspace",
+    "WorkspaceMember",
+    "ApiKey",
     "Workflow",
     "Tool",
     "ActivityLog",
-    "BillingData"
+    "BillingData",
+    "WorkflowTrace",
+    "SchemaAuditTrail",
+    "CronJob",
+    "RAGSource",
+    "IntegrationConnection",
+    "Policy",
+    "PolicyAttachment",
 ]

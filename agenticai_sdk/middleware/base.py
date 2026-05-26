@@ -48,6 +48,7 @@ class MiddlewareContext:
     direction: Direction = Direction.INBOUND
     workflow_id: str = ""
     trace_id: str | None = None
+    workspace_id: str | None = None
 
 
 class MiddlewareBase(abc.ABC):

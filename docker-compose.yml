@@ -1,9 +1,79 @@
-# Docker Compose for AgenticAI Observability Stack
-# This spins up Prometheus and Grafana for local testing
+# Docker Compose for AgenticAI Platform
+# Usage: docker compose up -d
 
-version: "3.8"
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
+  # ── API Server ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agenticai_api
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENTICAI_DB_URL=postgresql://agenticai:${DB_PASSWORD:-changeme}@postgres:5432/agenticai
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - DOMAIN=${DOMAIN:-http://localhost:3000}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - agenticai_data:/app/data
+      - ./agenticai_sdk:/app/agenticai_sdk:ro
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: agenticai_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=agenticai
+      - POSTGRES_USER=agenticai
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenticai"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ── Redis ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: agenticai_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes --save 60 1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ── Prometheus (Monitoring) ─────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest
     container_name: agenticai_prometheus
@@ -11,7 +81,14 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - promdata:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    restart: unless-stopped
 
+  # ── Grafana (Monitoring) ────────────────────────────────────────────────
   grafana:
     image: grafana/grafana:latest
     container_name: agenticai_grafana
@@ -19,6 +96,17 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafanadata:/var/lib/grafana
     depends_on:
       - prometheus
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  promdata:
+  grafanadata:
+  agenticai_data:

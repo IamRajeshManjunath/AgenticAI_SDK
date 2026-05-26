@@ -137,6 +137,9 @@ def init_db(
         for mapper_class, eng in binds.items():
             mapper_class.__table__.create(bind=eng, checkfirst=True)
 
+    # ── Seed default IAM policies ────────────────────────────────────────
+    _seed_default_policies()
+
     if persist:
         _save_config(actual_url, routing_map)
 
@@ -195,6 +198,45 @@ def get_db_status() -> dict[str, Any]:
             return {"status": "connected", "provider": provider, "url": url, "latency_ms": latency}
     except Exception as exc:
         return {"status": "error", "provider": provider, "url": url, "error": str(exc)}
+
+
+def _seed_default_policies() -> None:
+    """Create system IAM policies for admin/editor/viewer roles if missing."""
+    from agenticai_sdk.db.models import Policy, PolicyAttachment
+    from agenticai_sdk.auth.permissions import DEFAULT_ROLE_POLICIES
+
+    db = next(get_session())
+    try:
+        for role, (name, desc, doc) in DEFAULT_ROLE_POLICIES.items():
+            existing = db.query(Policy).filter(Policy.id == f"policy_{role}").first()
+            if existing:
+                continue
+            import uuid
+            policy = Policy(
+                id=f"policy_{role}",
+                name=name,
+                description=desc,
+                policy_document=doc,
+                is_system=1,
+            )
+            db.add(policy)
+            db.flush()  # ensure policy.id is available
+
+            # Attach to the role principal
+            attachment = PolicyAttachment(
+                id=str(uuid.uuid4()),
+                policy_id=policy.id,
+                principal_type="role",
+                principal_id=role,
+            )
+            db.add(attachment)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _enable_sqlite_wal(engine: Engine) -> None:

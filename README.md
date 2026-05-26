@@ -127,10 +127,15 @@ agenticai_sdk/
 ├── gateway/                          # FastAPI Gateway
 │   ├── __init__.py
 │   ├── app.py                       # App factory + structlog config + CORS + exception handlers
-│   ├── routes.py                    # FastAPI route handlers (workflow, HITL, SaaS CRUD, Master Agent, DB mgmt, observability)
-│   ├── integration_routes.py        # Integration management endpoints (connect/disconnect/test) (NEW)
+│   ├── routes/                      # Consolidated route modules (auth, workflows, integrations, observability, billing)
+│   │   ├── __init__.py              # Exports route_modules list for app factory
+│   │   ├── auth.py                  # Auth routes (register, login, API keys, workspace members)
+│   │   ├── workflows.py             # Workflow execution, HITL, SaaS CRUD, master agent
+│   │   ├── integrations.py          # Third-party integration management
+│   │   ├── observability.py         # Traces, metrics, evaluations, health
+│   │   └── billing.py               # Stripe billing (dormant — stripe dep removed)
 │   └── middleware.py                # ExecutionTrackingMiddleware (request ID, timing)
-├── Master_agent/                     # Upstream natural-language intake
+├── master_agent/                     # Upstream natural-language intake
 │   ├── __init__.py                  # Exports StructuredMasterAgent, MasterAgentRAG
 │   ├── agent.py                     # StructuredMasterAgent — LLM-based schema synthesis (no fallback)
 │   ├── rag.py                       # MasterAgentRAG — keyword-based doc retrieval
@@ -315,7 +320,7 @@ Protect your LLM budget and API tiers with a built-in rate limiter middleware.
 
 ## Master Agent (Upstream Intake)
 
-The `Master_agent/` module acts as the primary system ingress — it translates natural-language user prompts into valid `WorkflowSchema` JSON without requiring the user to understand the schema format.
+The `master_agent/` module acts as the primary system ingress — it translates natural-language user prompts into valid `WorkflowSchema` JSON without requiring the user to understand the schema format.
 
 ```
 User Prompt ("Build me a research + writing pipeline...")

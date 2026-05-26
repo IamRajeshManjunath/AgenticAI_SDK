@@ -19,16 +19,15 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agenticai_sdk.evaluation.dashboard import observability_router
 from agenticai_sdk.exceptions import (
     AgenticSDKError,
     BudgetExceededError,
     LoopTimeoutError,
     PromptInjectionDetectedError,
 )
+from agenticai_sdk.gateway.auth_middleware import AuthMiddleware
 from agenticai_sdk.gateway.middleware import ExecutionTrackingMiddleware
-from agenticai_sdk.gateway.routes import router
-from agenticai_sdk.gateway.integration_routes import router as integration_router
+from agenticai_sdk.gateway.routes import route_modules
 
 # ── Structlog configuration ───────────────────────────────────────────────────
 
@@ -125,6 +124,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     )
 
     # ── Middleware ────────────────────────────────────────────────────────
+    app.add_middleware(AuthMiddleware)  # Must be first — validates before execution tracking
     app.add_middleware(ExecutionTrackingMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -141,9 +141,8 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         pass
 
     # ── Routes ───────────────────────────────────────────────────────────
-    app.include_router(router)
-    app.include_router(observability_router)
-    app.include_router(integration_router)
+    for rm in route_modules:
+        app.include_router(rm)
 
     # ── Health check ──────────────────────────────────────────────────────
     @app.get(
