@@ -1,6 +1,6 @@
 [project]
 name = "agenticai-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Production-grade JSON-to-Workflow Engine SDK — compile declarative JSON into async, resilient, multi-agent DAGs powered by LangGraph and DeepAgent."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,6 +35,7 @@ dependencies = [
     "aioredis>=2.0,<3.0",
     "cryptography>=42.0,<44.0",
     "pymongo>=4.6,<5.0",
+    "bcrypt>=3.0,<4.1",
     "passlib[bcrypt]>=1.7,<2.0",
     "pyjwt>=2.0,<3.0",
 ]

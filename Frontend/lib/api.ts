@@ -1,4 +1,4 @@
-import type { WorkflowSchema, HITLRequest, TraceSpan, WorkflowMetrics } from './types'
+import type { WorkflowSchema, HITLRequest, TraceSpan, WorkflowMetrics, Policy, PolicyAttachment, IntegrationConnection, DBStatus, DBConnectRequest, TraceSummary, WorkspaceMember } from './types'
 import { useAuthStore } from './auth-store'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
@@ -194,6 +194,12 @@ export const authApi = {
   async deleteApiKey(keyId: string): Promise<ApiResponse<void>> {
     return fetchApi(`/auth/api-keys/${keyId}`, { method: 'DELETE' })
   },
+
+  async createWorkflowApiKey(workflowId: string): Promise<ApiResponse<{ id: string; name: string; key: string; key_prefix: string }>> {
+    return fetchApi<{ id: string; name: string; key: string; key_prefix: string }>(`/auth/api-keys/workflow/${workflowId}`, {
+      method: 'POST',
+    })
+  },
 }
 
 // Workspace / CRUD API
@@ -317,6 +323,133 @@ export const secretApi = {
   },
 }
 
+// Policy API
+export const policyApi = {
+  async list(): Promise<ApiResponse<Policy[]>> {
+    return fetchApi<Policy[]>('/policies')
+  },
+
+  async get(id: string): Promise<ApiResponse<Policy>> {
+    return fetchApi<Policy>(`/policies/${id}`)
+  },
+
+  async create(data: { name: string; description?: string; policy_document: Policy['policy_document'] }): Promise<ApiResponse<Policy>> {
+    return fetchApi<Policy>('/policies', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async update(id: string, data: { name?: string; description?: string; policy_document?: Policy['policy_document']; is_active?: boolean }): Promise<ApiResponse<Policy>> {
+    return fetchApi<Policy>(`/policies/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return fetchApi(`/policies/${id}`, { method: 'DELETE' })
+  },
+
+  async getAttachments(policyId: string): Promise<ApiResponse<PolicyAttachment[]>> {
+    return fetchApi<PolicyAttachment[]>(`/policies/${policyId}/attachments`)
+  },
+
+  async createAttachment(policyId: string, data: { target_type: string; target_id: string }): Promise<ApiResponse<PolicyAttachment>> {
+    return fetchApi<PolicyAttachment>(`/policies/${policyId}/attachments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async deleteAttachment(policyId: string, attachmentId: string): Promise<ApiResponse<void>> {
+    return fetchApi(`/policies/${policyId}/attachments/${attachmentId}`, { method: 'DELETE' })
+  },
+}
+
+// Integration API
+export const integrationApi = {
+  async list(): Promise<ApiResponse<IntegrationConnection[]>> {
+    return fetchApi<IntegrationConnection[]>('/workflow/integrations')
+  },
+
+  async connect(data: { integration_type: string; name: string; auth_state?: Record<string, string>; rate_limits?: Record<string, number> }): Promise<ApiResponse<{ success: boolean; connection: IntegrationConnection }>> {
+    return fetchApi<{ success: boolean; connection: IntegrationConnection }>('/workflow/integrations/connect', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async disconnect(integrationType: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return fetchApi<{ success: boolean; message: string }>(`/workflow/integrations/${integrationType}`, { method: 'DELETE' })
+  },
+
+  async test(integrationType: string, target?: string): Promise<ApiResponse<{ success: boolean; result: unknown }>> {
+    return fetchApi<{ success: boolean; result: unknown }>(`/workflow/integrations/${integrationType}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    })
+  },
+}
+
+// Workspace Member API
+export const memberApi = {
+  async list(): Promise<ApiResponse<WorkspaceMember[]>> {
+    return fetchApi<WorkspaceMember[]>('/auth/workspace/members')
+  },
+
+  async invite(email: string, role: string): Promise<ApiResponse<{ success: boolean }>> {
+    return fetchApi<{ success: boolean }>('/auth/workspace/invite', {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    })
+  },
+
+  async updateRole(userId: string, role: string): Promise<ApiResponse<{ success: boolean }>> {
+    return fetchApi<{ success: boolean }>(`/auth/workspace/members/${userId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    })
+  },
+
+  async remove(userId: string): Promise<ApiResponse<void>> {
+    return fetchApi(`/auth/workspace/members/${userId}`, { method: 'DELETE' })
+  },
+}
+
+// Database Management API
+export const dbApi = {
+  async status(): Promise<ApiResponse<DBStatus>> {
+    return fetchApi<DBStatus>('/workflow/db/status')
+  },
+
+  async connect(data: DBConnectRequest): Promise<ApiResponse<{ success: boolean }>> {
+    return fetchApi<{ success: boolean }>('/workflow/db/connect', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async disconnect(): Promise<ApiResponse<{ success: boolean }>> {
+    return fetchApi<{ success: boolean }>('/workflow/db/disconnect', { method: 'POST' })
+  },
+
+  async migrate(): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return fetchApi<{ success: boolean; message: string }>('/workflow/db/migrate', { method: 'POST' })
+  },
+}
+
+// Trace List API
+export const traceApi = {
+  async list(): Promise<ApiResponse<TraceSummary[]>> {
+    return fetchApi<TraceSummary[]>('/observability/traces')
+  },
+
+  async get(workflowId: string): Promise<ApiResponse<TraceResponse>> {
+    return fetchApi<TraceResponse>(`/observability/traces/${workflowId}`)
+  },
+}
+
 export const api = {
   workflow: workflowApi,
   hitl: hitlApi,
@@ -324,6 +457,11 @@ export const api = {
   auth: authApi,
   crud: crudApi,
   secrets: secretApi,
+  policies: policyApi,
+  integrations: integrationApi,
+  members: memberApi,
+  db: dbApi,
+  traces: traceApi,
 }
 
 export default api

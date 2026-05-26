@@ -14,8 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from agenticai_sdk.auth.permissions import require_permission
 from agenticai_sdk.db import get_session
-from agenticai_sdk.db.models import IntegrationConnection
+from agenticai_sdk.db.models import IntegrationConnection, User
 from agenticai_sdk.runtime.integration_registry import IntegrationRegistry
 from agenticai_sdk.schemas.integration import IntegrationConfig, IntegrationType
 
@@ -32,6 +33,7 @@ async def connect_integration(
     config: IntegrationConfig,
     request: Request,
     db: Session = Depends(get_session),
+    _: User = Depends(require_permission("integration:create")),
 ):
     ws_id = _get_workspace_id(request)
     registry = IntegrationRegistry(workspace_id=ws_id)
@@ -46,7 +48,11 @@ async def connect_integration(
 
 
 @router.get("")
-async def list_integrations(request: Request, db: Session = Depends(get_session)):
+async def list_integrations(
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("integration:read")),
+):
     ws_id = _get_workspace_id(request)
     conns = db.query(IntegrationConnection).filter(
         IntegrationConnection.workspace_id == ws_id,
@@ -69,6 +75,7 @@ async def disconnect_integration(
     integration_type: str,
     request: Request,
     db: Session = Depends(get_session),
+    _: User = Depends(require_permission("integration:delete")),
 ):
     ws_id = _get_workspace_id(request)
     if integration_type not in {t.value for t in IntegrationType}:
@@ -99,6 +106,7 @@ async def test_integration(
     integration_type: str,
     body: TestConnectionRequest,
     request: Request,
+    _: User = Depends(require_permission("integration:connect")),
 ):
     ws_id = _get_workspace_id(request)
     if integration_type not in {t.value for t in IntegrationType}:

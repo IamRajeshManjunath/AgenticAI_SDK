@@ -11,9 +11,10 @@ from agenticai_sdk.gateway.app import create_app
 
 
 @pytest.fixture(autouse=True)
-def _use_inmemory_db():
-    """Force all tests to use a fresh in-memory SQLite database."""
-    os.environ["AGENTICAI_DB_URL"] = "sqlite://"
+def _use_temp_db(tmp_path):
+    """Force all tests to use a fresh temporary SQLite database."""
+    db_path = tmp_path / "test.db"
+    os.environ["AGENTICAI_DB_URL"] = f"sqlite:///{db_path}"
     yield
     os.environ.pop("AGENTICAI_DB_URL", None)
 
@@ -210,22 +211,25 @@ class TestApiKeys:
 
 
 class TestWorkflowApiKeys:
-    def test_create_workflow_api_key(self, client, auth_headers):
-        """Create a workflow first, then generate a workflow-scoped key."""
-        # Create workflow via the SaaS endpoint
+    def _create_workflow_in_user_workspace(self, db, workspace_id):
+        """Helper to create a workflow in the user's actual workspace."""
+        from agenticai_sdk.db.models import Workflow
+        wf = Workflow(
+            id=f"wf-{uuid.uuid4().hex[:8]}",
+            workspace_id=workspace_id,
+            name="Test Workflow",
+            config={"test": True},
+        )
+        db.add(wf)
+        db.commit()
+        return wf.id
+
+    def test_create_workflow_api_key(self, client, auth_headers, registered_user):
+        workspace_id = registered_user["user"]["default_workspace_id"]
         from agenticai_sdk.db import get_session
         db = next(get_session())
         try:
-            from agenticai_sdk.db.models import Workflow
-            wf = Workflow(
-                id=f"wf-{uuid.uuid4().hex[:8]}",
-                workspace_id="test-ws",
-                name="Test Workflow",
-                config={"test": True},
-            )
-            db.add(wf)
-            db.commit()
-            wf_id = wf.id
+            wf_id = self._create_workflow_in_user_workspace(db, workspace_id)
         finally:
             db.close()
 
@@ -239,21 +243,13 @@ class TestWorkflowApiKeys:
         resp = client.post(f"/auth/api-keys/workflow/{uuid.uuid4().hex}", headers=auth_headers)
         assert resp.status_code == 404
 
-    def test_workflow_key_cannot_access_user_endpoints(self, client, auth_headers):
+    def test_workflow_key_cannot_access_user_endpoints(self, client, auth_headers, registered_user):
         """Workflow keys are workspace-scoped — cannot access /auth/me."""
+        workspace_id = registered_user["user"]["default_workspace_id"]
         from agenticai_sdk.db import get_session
         db = next(get_session())
         try:
-            from agenticai_sdk.db.models import Workflow
-            wf = Workflow(
-                id=f"wf-{uuid.uuid4().hex[:8]}",
-                workspace_id="test-ws",
-                name="WF Auth Test",
-                config={"test": True},
-            )
-            db.add(wf)
-            db.commit()
-            wf_id = wf.id
+            wf_id = self._create_workflow_in_user_workspace(db, workspace_id)
         finally:
             db.close()
 
@@ -353,18 +349,33 @@ class TestWorkspaceMembers:
 
 class TestRBAC:
     @pytest.fixture
-    def second_user(self, client):
-        """Register a second user and return their auth headers."""
+    def second_user(self, client, registered_user):
+        """Register a second user, then re-issue their token scoped to admin's workspace."""
         email = f"editor-{uuid.uuid4().hex[:8]}@example.com"
         resp = client.post("/auth/register", json={
             "email": email,
             "password": "password123",
         })
         data = resp.json()
+        user_data = data["user"]
+        admin_ws_id = registered_user["user"]["default_workspace_id"]
+
+        # Re-issue JWT scoped to the admin's workspace so RBAC checks
+        # resolve the editor's role inside the correct workspace.
+        import jwt as pyjwt
+        from datetime import datetime, timedelta, timezone
+        from agenticai_sdk.auth.dependencies import SECRET_KEY as JWT_SECRET
+        scoped_token = pyjwt.encode({
+            "sub": user_data["id"],
+            "workspace_id": admin_ws_id,
+            "exp": datetime.now(timezone.utc) + timedelta(days=7),
+            "iat": datetime.now(timezone.utc),
+        }, JWT_SECRET, algorithm="HS256")
+
         return {
             "email": email,
-            "access_token": data["access_token"],
-            "user": data["user"],
+            "access_token": scoped_token,
+            "user": user_data,
         }
 
     def test_editor_can_list_members(self, client, auth_headers, second_user):

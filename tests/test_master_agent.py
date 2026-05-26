@@ -1,12 +1,22 @@
 """Unit tests for the Upstream Structured Master Agent and its gateway integration."""
 
 from __future__ import annotations
+import os
 import pytest
 from fastapi.testclient import TestClient
 
 from agenticai_sdk.gateway.app import create_app
 from Master_agent.rag import MasterAgentRAG
 from Master_agent.context_loader import AgentContextLoader
+
+
+@pytest.fixture(autouse=True)
+def _use_temp_db(tmp_path):
+    """Force all tests to use a fresh temporary SQLite database."""
+    db_path = tmp_path / "test.db"
+    os.environ["AGENTICAI_DB_URL"] = f"sqlite:///{db_path}"
+    yield
+    os.environ.pop("AGENTICAI_DB_URL", None)
 
 
 @pytest.fixture
@@ -51,6 +61,6 @@ class TestAgentContextLoader:
 
 class TestMasterGatewayEndpoints:
     def test_master_generate_route_no_key(self, client):
-        """Without a valid API key, the endpoint should return 500."""
+        """Without a valid API key, the endpoint should return 401."""
         resp = client.post("/api/v1/workflow/master/generate", json={"prompt": "test"})
-        assert resp.status_code == 500
+        assert resp.status_code == 401

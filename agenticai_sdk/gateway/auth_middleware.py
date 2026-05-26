@@ -43,7 +43,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Skip public paths
-        if path in PUBLIC_PATHS or path.startswith(("/auth/", "/docs", "/redoc", "/openapi.json")):
+        if path in PUBLIC_PATHS or path.startswith(("/docs", "/redoc", "/openapi.json")):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")

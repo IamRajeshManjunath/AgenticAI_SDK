@@ -1,5 +1,7 @@
-from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
@@ -51,8 +53,8 @@ class ApiKeyResponse(BaseModel):
     name: str
     key_prefix: str
     is_active: bool
-    last_used_at: Optional[str] = None
-    created_at: Optional[str] = None
+    last_used_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

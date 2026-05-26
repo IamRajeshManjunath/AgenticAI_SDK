@@ -255,3 +255,76 @@ export interface CanvasEdge {
   target: string
   data?: EdgeCondition
 }
+
+// Policy types
+export interface PolicyDocument {
+  Version: string
+  Statement: Array<{
+    Effect: 'Allow' | 'Deny'
+    Action: string[]
+    Resource: string[]
+    Condition?: Record<string, unknown>
+  }>
+}
+
+export interface Policy {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  policy_document: PolicyDocument
+  is_active: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface PolicyAttachment {
+  id: string
+  policy_id: string
+  target_type: string
+  target_id: string
+  created_at: string | null
+}
+
+// Integration types
+export interface IntegrationConnection {
+  id: string
+  workspace_id: string
+  integration_type: string
+  name: string
+  created_at: string | null
+}
+
+// Database management types
+export interface DBStatus {
+  provider: string
+  uri: string | null
+  connected_at: string | null
+  error: string | null
+}
+
+export interface DBConnectRequest {
+  provider: string
+  uri: string
+}
+
+// Trace list types
+export interface TraceSummary {
+  trace_id: string
+  workflow_id: string
+  workflow_name: string
+  status: 'started' | 'running' | 'completed' | 'failed'
+  total_cost: number
+  total_tokens: number
+  latency_ms: number
+  started_at: string
+  completed_at: string | null
+}
+
+// Workflow-scoped API key
+export interface WorkflowApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  created_at: string | null
+}

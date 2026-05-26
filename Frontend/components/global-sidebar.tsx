@@ -27,6 +27,9 @@ import {
   LogOut,
   User,
   Lock,
+  Cable,
+  Shield,
+  BarChart3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
@@ -408,6 +411,45 @@ export function GlobalSidebar() {
               >
                 <Activity className="w-4 h-4" />
                 Activity Log
+              </Link>
+
+              <Link
+                href="/observability"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  pathname === '/observability'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <BarChart3 className="w-4 h-4" />
+                Observability
+              </Link>
+
+              <Link
+                href="/integrations"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  pathname === '/integrations'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <Cable className="w-4 h-4" />
+                Integrations
+              </Link>
+
+              <Link
+                href="/policies"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  pathname === '/policies'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <Shield className="w-4 h-4" />
+                IAM Policies
               </Link>
 
               <Link

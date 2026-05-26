@@ -43,6 +43,8 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import type { TraceSpan, ExecutionMessage, HITLRequest } from '@/lib/types'
+import { useToast } from '@/hooks/use-toast'
+import { hitlApi } from '@/lib/api'
 
 import useSWR from 'swr'
 
@@ -50,6 +52,7 @@ const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 export default function ObservabilityPage() {
   const params = useParams()
+  const { toast } = useToast()
   const workflowId = params.id as string
   const { workflows, resolveHITLRequest } = useWorkflowStore()
   const workflow = workflows[workflowId]
@@ -138,9 +141,19 @@ export default function ObservabilityPage() {
     setShowHITLModal(true)
   }
 
-  const handleHITLResolve = (action: 'approve' | 'reject') => {
+  const handleHITLResolve = async (action: 'approve' | 'reject') => {
     if (currentHITL) {
       resolveHITLRequest(currentHITL.id, action, hitlFeedback)
+      const res = await hitlApi.approve({
+        agent_id: currentHITL.agent_id,
+        action,
+        feedback: hitlFeedback || undefined,
+      })
+      if (res.error) {
+        toast({ title: 'HITL Error', description: res.error, variant: 'destructive' })
+      } else {
+        toast({ title: action === 'approve' ? 'Approved' : 'Rejected', description: `HITL request ${action}d` })
+      }
     }
     setShowHITLModal(false)
     setHitlFeedback('')
