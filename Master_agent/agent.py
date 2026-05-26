@@ -5,8 +5,8 @@ import os
 from typing import Any
 
 from agenticai_sdk.schemas.workflow import WorkflowSchema
-from master_agent.rag import MasterAgentRAG
-from master_agent.context_loader import AgentContextLoader
+from .rag import MasterAgentRAG
+from .context_loader import AgentContextLoader
 
 
 class StructuredMasterAgent:

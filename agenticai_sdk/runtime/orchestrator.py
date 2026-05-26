@@ -43,6 +43,7 @@ from agenticai_sdk.middleware.budget_guardrails import BudgetGuardrailsMiddlewar
 from agenticai_sdk.middleware.context_compression import ContextCompressionMiddleware
 from agenticai_sdk.middleware.pii_masking import PIIMaskingMiddleware
 from agenticai_sdk.middleware.prompt_injection_firewall import PromptInjectionFirewallMiddleware
+from agenticai_sdk.middleware.schema_audit import SchemaAuditMiddleware
 from agenticai_sdk.orchestration.consensus_broker import ConsensusBroker
 from agenticai_sdk.orchestration.fallback_router import FallbackRouter
 from agenticai_sdk.orchestration.schema_mapper import SchemaMapperEngine
@@ -167,6 +168,9 @@ class Orchestrator:
         # Context compression
         comp_cfg = mw_config.compression if mw_config else None
         pipeline.add(ContextCompressionMiddleware(config=comp_cfg))
+
+        # Schema audit — records every payload pass to schema_audit_trails
+        pipeline.add(SchemaAuditMiddleware())
 
         return pipeline
 
@@ -434,6 +438,7 @@ class Orchestrator:
                     agent_id=agent_id,
                     workflow_id=workflow_id,
                     trace_id=trace_id,
+                    workspace_id=state.get("workspace_id", "default"),
                 )
                 mw_context.metadata["model_name"] = local_config.llm.model_name
 

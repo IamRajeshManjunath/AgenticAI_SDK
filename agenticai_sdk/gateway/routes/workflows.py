@@ -18,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import datetime
+import time
 import uuid
 from typing import Any
 
@@ -39,7 +40,7 @@ from agenticai_sdk.runtime.orchestrator import Orchestrator
 from agenticai_sdk.schemas.workflow import WorkflowSchema
 from agenticai_sdk.state.workflow_state import WorkflowState
 
-from master_agent.agent import StructuredMasterAgent
+from Master_agent.agent import StructuredMasterAgent
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -160,8 +161,12 @@ async def _execute_workflow(
     input_message: str,
     thread_id: str | None = None,
     initial_scratchpad: dict[str, Any] | None = None,
+    db: Session | None = None,
+    workspace_id: str = "default",
+    workflow_db_id: str | None = None,
 ) -> WorkflowRunResponse:
     tid = thread_id or str(uuid.uuid4())
+    start_ts = time.perf_counter()
     app = await _orchestrator.compile(workflow_schema)
     initial_state: WorkflowState = {
         "messages": [HumanMessage(content=input_message)],
@@ -188,6 +193,16 @@ async def _execute_workflow(
             "trace_id": None,
         }
 
+    if db is not None:
+        _persist_execution(
+            db=db,
+            workflow_db_id=workflow_db_id or workflow_schema.workflow_id,
+            workspace_id=workspace_id,
+            thread_id=tid,
+            exec_status=exec_status,
+            start_ts=start_ts,
+        )
+
     return WorkflowRunResponse(
         thread_id=tid,
         status=exec_status,
@@ -197,6 +212,49 @@ async def _execute_workflow(
         inner_thoughts=final_state.get("inner_thoughts", []),
         next_step=final_state.get("next_step"),
     )
+
+
+def _persist_execution(
+    db: Session,
+    workflow_db_id: str,
+    workspace_id: str,
+    thread_id: str,
+    exec_status: str,
+    start_ts: float,
+) -> None:
+    duration_ms = round((time.perf_counter() - start_ts) * 1000, 2)
+    trace_id = f"trace_{uuid.uuid4().hex[:12]}"
+
+    db.add(_WorkflowTrace(
+        id=trace_id,
+        workflow_id=workflow_db_id,
+        workspace_id=workspace_id,
+        trace_id=trace_id,
+        duration_ms=duration_ms,
+        total_tokens=0,
+        cost_usd=0.0,
+        error_count=0,
+        span_tree={"thread_id": thread_id, "status": exec_status},
+    ))
+
+    db.add(ActivityLog(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        workflow_id=workflow_db_id,
+        event_type="workflow.executed",
+        details={"thread_id": thread_id, "status": exec_status, "duration_ms": duration_ms},
+    ))
+
+    db.add(BillingData(
+        workspace_id=workspace_id,
+        amount=0.0,
+        currency="USD",
+        period_start=datetime.datetime.now(datetime.timezone.utc),
+        period_end=datetime.datetime.now(datetime.timezone.utc),
+        metrics={"workflow_id": workflow_db_id, "thread_id": thread_id},
+    ))
+
+    db.commit()
 
 
 # ── Workflow Run ──────────────────────────────────────────────────────────────
@@ -236,7 +294,12 @@ async def run_workflow(request_body: WorkflowRunRequest | WorkflowRunByKeyReques
             scratchpad = request_body.initial_scratchpad
 
         log.info("workflow_run_requested", input_preview=input_message[:100])
-        return await _execute_workflow(schema, input_message, thread_id, scratchpad)
+        return await _execute_workflow(
+            schema, input_message, thread_id, scratchpad,
+            db=db,
+            workspace_id=_get_workspace_id(request),
+            workflow_db_id=getattr(request.state, "workflow_key_scope", None),
+        )
 
     except HTTPException:
         raise
@@ -272,7 +335,12 @@ async def run_workflow_by_id(
     log.info("workflow_run_by_id", input_preview=body.input_message[:100])
 
     schema = WorkflowSchema(**wf.config)
-    return await _execute_workflow(schema, body.input_message, body.thread_id, body.initial_scratchpad)
+    return await _execute_workflow(
+        schema, body.input_message, body.thread_id, body.initial_scratchpad,
+        db=db,
+        workspace_id=_get_workspace_id(request),
+        workflow_db_id=workflow_id,
+    )
 
 
 # ── HITL Approve ──────────────────────────────────────────────────────────────

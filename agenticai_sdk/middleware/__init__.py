@@ -19,6 +19,7 @@ from agenticai_sdk.middleware.budget_guardrails import BudgetGuardrailsMiddlewar
 from agenticai_sdk.middleware.pii_masking import PIIMaskingMiddleware
 from agenticai_sdk.middleware.prompt_injection_firewall import PromptInjectionFirewallMiddleware
 from agenticai_sdk.middleware.context_compression import ContextCompressionMiddleware
+from agenticai_sdk.middleware.schema_audit import SchemaAuditMiddleware
 
 __all__ = [
     "MiddlewareBase",
@@ -28,4 +29,5 @@ __all__ = [
     "PIIMaskingMiddleware",
     "PromptInjectionFirewallMiddleware",
     "ContextCompressionMiddleware",
+    "SchemaAuditMiddleware",
 ]

@@ -5,8 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agenticai_sdk.gateway.app import create_app
-from master_agent.rag import MasterAgentRAG
-from master_agent.context_loader import AgentContextLoader
+from Master_agent.rag import MasterAgentRAG
+from Master_agent.context_loader import AgentContextLoader
 
 
 @pytest.fixture

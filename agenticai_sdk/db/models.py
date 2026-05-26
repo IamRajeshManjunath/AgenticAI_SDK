@@ -124,6 +124,7 @@ class WorkflowTrace(Base):
 
     id = Column(String, primary_key=True, index=True)
     workflow_id = Column(String, ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
+    workspace_id = Column(String, index=True, nullable=True)
     trace_id = Column(String, index=True)
     duration_ms = Column(Float)
     total_tokens = Column(Integer)

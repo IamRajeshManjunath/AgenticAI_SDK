@@ -1132,6 +1132,47 @@ pytest --cov=agenticai_sdk
 
 ---
 
+## Change Log
+
+### v0.2.1 — Observability Persistence & IAM Policy API
+
+#### Persistence Gap Closure
+Four tables that existed in schema but were never written are now populated:
+
+| Table | Source | Writes per execution |
+|-------|--------|---------------------|
+| `workflow_traces` | `_persist_execution()` in `routes/workflows.py` | 1 row per workflow run |
+| `activity_logs` | Same (event_type=`workflow.executed`) | 1 row per workflow run |
+| `schema_audit_trails` | `SchemaAuditMiddleware` in middleware pipeline | ~8 rows per execution (4 middlewares × 2 passes) |
+| `billing_data` | `_persist_execution()` | 1 row per workflow run (amount=0 until token tracking wired) |
+
+#### Custom IAM Policy API (8 new routes)
+`POST/GET/PATCH/DELETE /api/v1/policies` — manage reusable IAM policy templates.  
+`GET/POST/DELETE /api/v1/policies/attachments` — attach/detach policies to users, roles, or workspaces.
+
+Policy documents are now validated against a strict schema:
+```json
+{
+  "version": "1",
+  "statements": [
+    {"effect": "Allow", "actions": ["workflow:run", "tool:*"], "resources": ["*"]}
+  ]
+}
+```
+- `version` must be `"1"`
+- `effect` must be `"Allow"` or `"Deny"` only
+- `actions` and `resources` must each have at least 1 entry
+
+#### Pre-existing Issues Fixed
+- Circular import in `agenticai_sdk/auth/__init__.py` (blocked route loading)
+- Circular import in `agenticai_sdk/billing/__init__.py` (same pattern)
+- `Master_agent/` internal imports (absolute → relative, broke on case-sensitive FS)
+- `auth_middleware.py` FastAPI 0.136 compatibility (`BaseHTTPMiddleware` moved to Starlette)
+
+**146 core tests passing** (9 pre-existing failures in gateway/auth integration tests unrelated to these changes).
+
+---
+
 ## License
 
 MIT — © AgenticAI SDK Contributors

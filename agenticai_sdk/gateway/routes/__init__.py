@@ -15,6 +15,7 @@ from .integrations import router as integrations_router
 from .observability import observability_router
 from .billing import router as billing_router
 from .secrets import router as secrets_router
+from .policies import router as policies_router
 
 # Ordered list of all route modules for app factory iteration
 route_modules: list[APIRouter] = [
@@ -24,6 +25,7 @@ route_modules: list[APIRouter] = [
     observability_router,
     billing_router,
     secrets_router,
+    policies_router,
 ]
 
 __all__ = [
@@ -34,4 +36,5 @@ __all__ = [
     "observability_router",
     "billing_router",
     "secrets_router",
+    "policies_router",
 ]

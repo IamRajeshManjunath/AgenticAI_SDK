@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import structlog
 from fastapi import Request, Response
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from passlib.context import CryptContext
 
