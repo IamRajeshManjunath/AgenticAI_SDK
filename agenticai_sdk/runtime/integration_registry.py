@@ -75,6 +75,46 @@ class IntegrationRegistry:
         finally:
             db.close()
 
+    def test_connection(self, integration_type: str, target: Optional[str] = None, message: str = "Hello from AgenticAI SDK!") -> str:
+        """Send a test message to verify the connection is working."""
+        conn = self.get_connection(integration_type)
+        if not conn:
+            raise ValueError(f"No active {integration_type} connection found.")
+
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if integration_type == "slack":
+            tool = self._build_slack_tool(conn)
+        elif integration_type == "teams":
+            tool = self._build_teams_tool(conn)
+        elif integration_type == "outlook":
+            tool = self._build_outlook_tool(conn)
+        elif integration_type == "whatsapp":
+            tool = self._build_whatsapp_tool(conn)
+        else:
+            raise ValueError(f"Unsupported integration type: {integration_type}")
+
+        channel = target or "test"
+        if loop and loop.is_running():
+            return asyncio.run_coroutine_threadsafe(
+                tool.coroutine(channel, message) if integration_type == "slack"
+                else tool.coroutine(message) if integration_type == "teams"
+                else tool.coroutine(channel, "Test Subject", message) if integration_type == "outlook"
+                else tool.coroutine(channel, message),
+                loop,
+            ).result()
+        else:
+            return asyncio.run(
+                tool.coroutine(channel, message) if integration_type == "slack"
+                else tool.coroutine(message) if integration_type == "teams"
+                else tool.coroutine(channel, "Test Subject", message) if integration_type == "outlook"
+                else tool.coroutine(channel, message),
+            )
+
     def get_tools(self) -> List[StructuredTool]:
         """Exposes standard LangChain tools constructed dynamically from active integration parameters."""
         tools = []

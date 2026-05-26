@@ -15,6 +15,7 @@ class VectorDBProvider(str, Enum):
     PGVECTOR = "pgvector"
     CHROMADB = "chromadb"
     FIAAS = "fiaas"
+    UNIVERSAL = "universal"
 
 
 class EmbeddingProvider(str, Enum):
@@ -86,4 +87,46 @@ class RAGConfig(BaseModel):
     hybrid_search: bool = Field(
         default=False,
         description="Enable hybrid (dense + sparse BM25) search if supported by the vector DB.",
+    )
+
+    # Universal connector fields (only used when vector_db == "universal")
+    universal_base_url: str | None = Field(
+        default=None,
+        description="Base URL for the universal RAG connector.",
+    )
+    universal_search_endpoint: str | None = Field(
+        default=None,
+        description="Search endpoint path for the universal connector.",
+    )
+    universal_upsert_endpoint: str | None = Field(
+        default=None,
+        description="Upsert endpoint path for the universal connector.",
+    )
+    universal_request_template: dict | None = Field(
+        default=None,
+        description="JSON request template with {query}, {vector}, {top_k} placeholders.",
+    )
+    universal_response_path: str | None = Field(
+        default=None,
+        description="Dot-notation path to extract results from the response.",
+    )
+    universal_content_field: str | None = Field(
+        default=None,
+        description="Field name for document text in results.",
+    )
+    universal_score_field: str | None = Field(
+        default=None,
+        description="Field name for similarity score in results.",
+    )
+    universal_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Additional HTTP headers for universal connector requests.",
+    )
+    universal_auth_type: str | None = Field(
+        default=None,
+        description="Auth type for universal connector (bearer, basic, api-key).",
+    )
+    universal_auth_value: str | None = Field(
+        default=None,
+        description="Auth value for universal connector.",
     )

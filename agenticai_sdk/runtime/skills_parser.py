@@ -12,6 +12,35 @@ class SkillsParser:
     """
     
     @classmethod
+    def parse_directory(cls, dir_path: str) -> Dict[str, Any]:
+        """Parse all skill.md files found in subdirectories under dir_path."""
+        merged: Dict[str, Any] = {
+            "context_rules": [],
+            "situational_boundaries": {},
+            "sub_graph_modifications": {},
+        }
+        if not os.path.isdir(dir_path):
+            return merged
+
+        for entry in sorted(os.listdir(dir_path)):
+            skill_path = os.path.join(dir_path, entry, "skill.md")
+            if os.path.isfile(skill_path):
+                try:
+                    with open(skill_path, encoding="utf-8") as f:
+                        content = f.read()
+                    parsed = cls.parse_content(content)
+                    # Merge rules
+                    merged["context_rules"].extend(parsed.get("context_rules", []))
+                    for param, rules in parsed.get("situational_boundaries", {}).items():
+                        merged["situational_boundaries"].setdefault(param, []).extend(rules)
+                    for key, val in parsed.get("sub_graph_modifications", {}).items():
+                        merged["sub_graph_modifications"][key] = val
+                except Exception as e:
+                    logger.error(f"Failed to parse {skill_path}: {e}", exc_info=True)
+
+        return merged
+
+    @classmethod
     def parse_file(cls, filepath: str) -> Dict[str, Any]:
         if not os.path.exists(filepath):
             return {}
@@ -114,6 +143,30 @@ class SkillsParser:
                             })
 
         return skills
+
+    @classmethod
+    def parse_agent_md(cls, filepath: str) -> Dict[str, Any]:
+        """Parse an agent.md file, extracting YAML frontmatter and markdown body."""
+        result: Dict[str, Any] = {"frontmatter": {}, "body": ""}
+        if not os.path.exists(filepath):
+            return result
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # YAML-style frontmatter
+            match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", content, re.DOTALL)
+            if match:
+                raw = match.group(1)
+                result["body"] = match.group(2).strip()
+                for line in raw.strip().splitlines():
+                    if ":" in line:
+                        key, _, val = line.partition(":")
+                        result["frontmatter"][key.strip()] = val.strip().strip('"').strip("'")
+            else:
+                result["body"] = content.strip()
+        except Exception as e:
+            logger.error(f"Failed to parse agent.md {filepath}: {e}", exc_info=True)
+        return result
 
     @staticmethod
     def _parse_value(val: str) -> Any:

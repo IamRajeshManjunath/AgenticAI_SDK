@@ -405,6 +405,27 @@ class Orchestrator:
                 except Exception as skills_exc:
                     logger.warning("skills_injection_failed", agent_id=agent_id, error=str(skills_exc))
 
+                # ── Apply per-agent agent.md / skill.md context ─────────
+                try:
+                    from agenticai_sdk.runtime.agent_context_loader import AgentContextLoader  # noqa: PLC0415
+                    ctx_loader = AgentContextLoader(
+                        base_dir=agent_config.agent_context_path or "agents"
+                    )
+                    context = ctx_loader.load_agent_context(agent_id)
+                    if context.get("agent_md") or context.get("skill_md"):
+                        extension = ctx_loader.format_agent_system_prompt_extension(agent_id, context)
+                        # Prepend the context extension to the prompt template string
+                        if local_config is agent_config:
+                            local_config = copy.deepcopy(agent_config)
+                        if extension:
+                            base = local_config.prompt_template.template_string
+                            if base:
+                                local_config.prompt_template.template_string = (
+                                    f"{extension}\n\n---\n\n{base}"
+                                )
+                except Exception as agent_ctx_exc:
+                    logger.warning("agent_context_injection_failed", agent_id=agent_id, error=str(agent_ctx_exc))
+
                 # ── Build middleware context ───────────────────────────
                 mw_context = MiddlewareContext(
                     payload=dict(state),

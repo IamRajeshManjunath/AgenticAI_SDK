@@ -63,6 +63,26 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._registry: dict[str, BaseTool] = {}
 
+    def load_integration_tools(self, workspace_id: str = "default") -> list[BaseTool]:
+        """Load third-party integration tools (Slack, Teams, Outlook, WhatsApp)
+        from the IntegrationRegistry and register them in the tool cache.
+
+        These tools can then be referenced by agent nodes in workflow configs.
+        """
+        try:
+            from agenticai_sdk.runtime.integration_registry import IntegrationRegistry
+
+            registry = IntegrationRegistry(workspace_id=workspace_id)
+            integration_tools = registry.get_tools()
+            for tool in integration_tools:
+                self._registry[tool.name] = tool
+                _TOOL_CACHE[tool.name] = tool
+                logger.info("integration_tool_loaded", name=tool.name)
+            return integration_tools
+        except Exception as exc:
+            logger.warning("failed_to_load_integration_tools", error=str(exc))
+            return []
+
     def resolve_all(self, tool_configs: list[ToolConfig]) -> "ToolRegistry":
         """Instantiate and register all tools from a list of ToolConfigs.
 

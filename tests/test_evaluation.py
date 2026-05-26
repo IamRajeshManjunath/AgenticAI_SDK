@@ -187,6 +187,58 @@ def test_evaluator_full_evaluation():
     assert result.overall_score > 0
     assert result.relevance_score > 0
     assert result.coherence_score > 0
+    assert isinstance(result.faithfulness_score, float)
+    assert isinstance(result.completeness_score, float)
+    assert isinstance(result.conciseness_score, float)
+
+
+def test_evaluator_faithfulness_high():
+    evaluator = ResponseQualityEvaluator()
+    docs = [{"content": "The Earth orbits the Sun. The Moon orbits the Earth."}]
+    score = evaluator.evaluate_faithfulness(
+        "The Earth orbits the Sun. The Moon orbits the Earth.",
+        docs,
+    )
+    assert score > 0.5
+
+def test_evaluator_faithfulness_low():
+    evaluator = ResponseQualityEvaluator()
+    docs = [{"content": "Cats are mammals with four legs."}]
+    score = evaluator.evaluate_faithfulness(
+        "The Earth is flat. The Moon is made of cheese.",
+        docs,
+    )
+    assert score <= 0.3
+
+def test_evaluator_faithfulness_no_docs():
+    evaluator = ResponseQualityEvaluator()
+    score = evaluator.evaluate_faithfulness("Some response.", [])
+    assert score == 0.5
+
+def test_evaluator_completeness_high():
+    evaluator = ResponseQualityEvaluator()
+    score = evaluator.evaluate_completeness(
+        "deep learning neural networks",
+        "Deep learning uses neural networks with multiple layers to learn representations.",
+    )
+    assert score > 0.3
+
+def test_evaluator_completeness_none():
+    evaluator = ResponseQualityEvaluator()
+    score = evaluator.evaluate_completeness(
+        "machine learning artificial intelligence",
+        "The weather is sunny today.",
+    )
+    assert score < 0.5
+
+def test_evaluator_conciseness():
+    evaluator = ResponseQualityEvaluator()
+    # Concise response should score higher
+    concise = "The Earth orbits the Sun. The Moon orbits the Earth."
+    verbose = "Basically, the Earth, it actually, really orbits the Sun in a very, very important way, and additionally, furthermore, the Moon, it essentially orbits the Earth as well, which is extremely significant."
+    c_score = evaluator.evaluate_conciseness(concise)
+    v_score = evaluator.evaluate_conciseness(verbose)
+    assert c_score > v_score
 
 
 # ── WorkflowEvaluator tests ────────────────────────────────────────────────

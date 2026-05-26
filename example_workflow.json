@@ -1,7 +1,7 @@
 {
-  "workflow_id": "enterprise-hierarchy-v2",
-  "name": "Hierarchical Enterprise Workflow (v0.2)",
-  "description": "A complex manager-worker workflow. A 'Coordinator' agent delegates specific sub-tasks to 'Researcher' and 'Writer' specialists using hierarchical tool calls. Includes safety guardrails, fallbacks, and consensus.",
+  "workflow_id": "enterprise-hierarchy-v3",
+  "name": "Hierarchical Enterprise Workflow (v0.3)",
+  "description": "A complex manager-worker workflow. A 'Coordinator' agent delegates specific sub-tasks to 'Researcher' and 'Writer' specialists using hierarchical tool calls. Includes safety guardrails, fallbacks, consensus, memory management, context compression, and schema enforcement.",
   "tools": [
     {
       "tool_id": "google_search",
@@ -61,6 +61,11 @@
         "temperature": 0.1,
         "api_key_env_var": "OPENAI_API_KEY"
       },
+      "memory": {
+        "execution_memory_type": "short_term",
+        "window_size": 20,
+        "caching_strategy": "in_memory"
+      },
       "sub_agents": ["researcher", "writer"],
       "topology": {
         "orchestration_mode": "model_driven"
@@ -109,6 +114,11 @@
         },
         "rate_limiter": {
           "max_requests_per_minute": 10
+        },
+        "context_compression": {
+          "enabled": true,
+          "max_context_tokens": 8192,
+          "strategy": "truncate"
         }
       },
       "topology": {
@@ -140,6 +150,14 @@
         "enabled": true,
         "instances": 3,
         "threshold": 0.7
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "final_report": { "type": "string" },
+          "word_count": { "type": "integer" }
+        },
+        "required": ["final_report"]
       },
       "topology": {
         "orchestration_mode": "agent_driven",

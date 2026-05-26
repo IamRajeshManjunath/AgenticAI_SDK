@@ -2,225 +2,89 @@
 
 from __future__ import annotations
 import os
-import uuid
-import json
 from typing import Any
 
 from agenticai_sdk.schemas.workflow import WorkflowSchema
-from agenticai_sdk.schemas.agent_node import AgentNodeConfig
-from agenticai_sdk.schemas.edges import EdgeConfig
-from agenticai_sdk.schemas.tools import ToolConfig
-from agenticai_sdk.schemas.rag import RAGConfig
-from agenticai_sdk.schemas.llm import LLMConfig
-
 from Master_agent.rag import MasterAgentRAG
+from Master_agent.context_loader import AgentContextLoader
+
 
 class StructuredMasterAgent:
-    """Upstream Master Agent acting as primary system ingress."""
-    
-    def __init__(self, workspace_root: str | None = None):
+    """Upstream Master Agent acting as primary system ingress.
+
+    Ingests a natural-language user prompt, retrieves relevant system context
+    (RAG docs + agent.md / skill.md files), and synthesises a valid
+    WorkflowSchema via structured LLM output.  No rule-based fallback.
+    """
+
+    def __init__(self, workspace_root: str | None = None, agents_dir: str = "agents") -> None:
         self.rag = MasterAgentRAG(workspace_root=workspace_root)
-        
+        self.context_loader = AgentContextLoader(agents_dir=agents_dir)
+
     def generate_proposal(self, user_prompt: str) -> dict[str, Any]:
-        """Ingest user automation request, run RAG, and synthesize a strict WorkflowSchema JSON."""
+        """Ingest user automation request, run RAG + file context, and
+        synthesise a strict WorkflowSchema JSON via structured LLM output.
+
+        Raises:
+            ValueError: If the LLM synthesis fails (no fallback).
+        """
         # 1. Retrieve system-specific context from RAG
         context_chunks = self.rag.retrieve(user_prompt, top_k=2)
-        context_str = "\n\n".join([f"Source: {c['source']}\n{c['content']}" for c in context_chunks])
-        
-        # 2. Synthesize Schema via Structured Decoding / Fallback Rule-based compilation
-        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-        
-        proposal = None
-        if api_key and (os.getenv("OPENAI_API_KEY") or "").startswith("sk-"):
-            try:
-                from langchain_openai import ChatOpenAI
-                from langchain_core.prompts import ChatPromptTemplate
-                
-                # Setup structured LLM call
-                llm = ChatOpenAI(model="gpt-4o", temperature=0)
-                structured_llm = llm.with_structured_output(WorkflowSchema)
-                
-                prompt_tpl = ChatPromptTemplate.from_messages([
-                    ("system", (
+        rag_context = "\n\n".join(
+            f"Source: {c['source']}\n{c['content']}" for c in context_chunks
+        )
+
+        # 2. Load per-agent markdown context (agent.md / skill.md)
+        agent_contexts = self.context_loader.load_all_contexts()
+        md_context = self.context_loader.format_context_block(agent_contexts)
+
+        # 3. Combine into a single system context block
+        full_context = rag_context
+        if md_context:
+            full_context = f"{rag_context}\n\n{md_context}"
+
+        # 4. Synthesise schema via structured decoding
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key or not api_key.startswith("sk-"):
+            raise ValueError(
+                "OPENAI_API_KEY is not set or invalid. "
+                "A valid OpenAI API key is required for Master Agent synthesis."
+            )
+
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.prompts import ChatPromptTemplate
+
+            llm = ChatOpenAI(model="gpt-4o", temperature=0)
+            structured_llm = llm.with_structured_output(WorkflowSchema)
+
+            prompt_tpl = ChatPromptTemplate.from_messages([
+                (
+                    "system",
+                    (
                         "You are the Upstream Master Agent for Harpy.AI. "
-                        "Synthesize a strict, valid, end-to-end multi-agent WorkflowSchema "
-                        "matching the user's requirements. "
+                        "Synthesise a strict, valid, end-to-end multi-agent WorkflowSchema "
+                        "matching the user's requirements.\n\n"
                         "Verify referential integrity:\n"
-                        "1. Every edge source and target must be a declared agent_id (target can be __end__).\n"
+                        "1. Every edge source and target must be a declared agent_id "
+                        "(target can be __end__).\n"
                         "2. entry_point must match one of the agent_ids.\n"
-                        "3. Tools/RAG references inside agents must exist in the global tools/rag_sources lists.\n\n"
+                        "3. Tools/RAG references inside agents must exist in the "
+                        "global tools/rag_sources lists.\n\n"
                         "System Reference Context:\n{context}"
-                    )),
-                    ("user", "User Request: {request}")
-                ])
-                
-                chain = prompt_tpl | structured_llm
-                proposal = chain.invoke({"request": user_prompt, "context": context_str})
-            except Exception as e:
-                print(f"Structured LLM synthesis failed: {e}. Falling back to rule-based parser.")
-                
-        if proposal is None:
-            proposal = self._generate_rule_based_fallback(user_prompt)
-            
-        # Ensure it's returned as a serializable dictionary matching the schema specs
+                    ),
+                ),
+                ("user", "User Request: {request}"),
+            ])
+
+            chain = prompt_tpl | structured_llm
+            proposal = chain.invoke({"request": user_prompt, "context": full_context})
+        except Exception as exc:
+            raise ValueError(
+                f"Master Agent LLM synthesis failed: {exc}. "
+                "No fallback is available — please check your API key or try a different prompt."
+            ) from exc
+
         if isinstance(proposal, WorkflowSchema):
             return proposal.model_dump()
         return proposal
-
-    def _generate_rule_based_fallback(self, user_prompt: str) -> dict[str, Any]:
-        """Fallback deterministic synthesis satisfying all Pydantic validators in WorkflowSchema."""
-        prompt_lower = user_prompt.lower()
-        
-        # Determine tools based on query keywords
-        tools = []
-        agent_tools = []
-        if "search" in prompt_lower or "google" in prompt_lower or "web" in prompt_lower:
-            tools.append({
-                "tool_id": "google_search_api",
-                "name": "Google Search",
-                "description": "Search the web for real-time information.",
-                "type": "rest_api",
-                "config": {
-                    "endpoint": "https://api.search.com/v1",
-                    "method": "GET",
-                    "api_key_env_var": "SEARCH_API_KEY"
-                }
-            })
-            agent_tools.append("google_search_api")
-            
-        if "python" in prompt_lower or "code" in prompt_lower or "script" in prompt_lower or "run" in prompt_lower:
-            tools.append({
-                "tool_id": "custom_python_script",
-                "name": "Python Script Exec",
-                "description": "Execute Python code snippets.",
-                "type": "custom_python",
-                "config": {
-                    "code": "def custom_script(data): return data",
-                    "arguments": {}
-                }
-            })
-            agent_tools.append("custom_python_script")
-
-        if "weather" in prompt_lower or "temperature" in prompt_lower:
-            tools.append({
-                "tool_id": "weather_mcp_client",
-                "name": "Weather MCP",
-                "description": "Fetch weather updates.",
-                "type": "mcp",
-                "config": {
-                    "connection_string": "http://localhost:8001",
-                    "arguments": {"mcp_tool_name": "fetch_weather"}
-                }
-            })
-            agent_tools.append("weather_mcp_client")
-            
-        # Determine RAG sources
-        rag_sources = []
-        agent_rag = []
-        if "rag" in prompt_lower or "kb" in prompt_lower or "knowledge" in prompt_lower or "document" in prompt_lower:
-            rag_sources.append({
-                "rag_id": "enterprise_kb",
-                "vector_db": "qdrant",
-                "connection_uri": "http://localhost:6333",
-                "api_key_env_var": "QDRANT_API_KEY",
-                "embedding_provider": "openai",
-                "embedding_model": "text-embedding-3-small",
-                "collection_name": "enterprise_docs",
-                "top_k": 3,
-                "similarity_threshold": 0.7,
-                "hybrid_search": True
-            })
-            agent_rag.append("enterprise_kb")
-            
-        # Build agents
-        agents = []
-        if "write" in prompt_lower or "writer" in prompt_lower or "report" in prompt_lower or "summarize" in prompt_lower:
-            # Multi-agent flow: Coordinator + Specialist
-            agents.append({
-                "agent_id": "coordinator_agent",
-                "role": "Strategic Orchestrator",
-                "input_schema": {"type": "object", "properties": {"task": {"type": "string"}}},
-                "prompt_template": {
-                    "template_id": "coordinator_prompt",
-                    "template_string": "Coordinate the execution of: {task}. Delegate tasks to sub-agents.",
-                    "input_variables": ["task"]
-                },
-                "llm": {
-                    "provider": "openai",
-                    "model_name": "gpt-4o",
-                    "temperature": 0.2,
-                    "api_key_env_var": "OPENAI_API_KEY"
-                },
-                "sub_agents": ["specialist_agent"],
-                "tools": [],
-                "rag_sources": [],
-                "topology": {"orchestration_mode": "model_driven"}
-            })
-            agents.append({
-                "agent_id": "specialist_agent",
-                "role": "Technical Specialist",
-                "prompt_template": {
-                    "template_id": "specialist_prompt",
-                    "template_string": "Execute the task using tools and documentation: {task}",
-                    "input_variables": ["task"]
-                },
-                "llm": {
-                    "provider": "openai",
-                    "model_name": "gpt-4o",
-                    "temperature": 0.5,
-                    "api_key_env_var": "OPENAI_API_KEY"
-                },
-                "tools": agent_tools,
-                "rag_sources": agent_rag,
-                "topology": {"orchestration_mode": "model_driven"}
-            })
-            edges = [
-                {"source": "coordinator_agent", "target": "specialist_agent"},
-                {"source": "specialist_agent", "target": "__end__"}
-            ]
-            entry_point = "coordinator_agent"
-        else:
-            # Single agent flow
-            agents.append({
-                "agent_id": "main_agent",
-                "role": "General Assistant",
-                "input_schema": {"type": "object", "properties": {"task": {"type": "string"}}},
-                "prompt_template": {
-                    "template_id": "main_prompt",
-                    "template_string": "Assist with: {task}",
-                    "input_variables": ["task"]
-                },
-                "llm": {
-                    "provider": "openai",
-                    "model_name": "gpt-4o",
-                    "temperature": 0.5,
-                    "api_key_env_var": "OPENAI_API_KEY"
-                },
-                "tools": agent_tools,
-                "rag_sources": agent_rag,
-                "topology": {"orchestration_mode": "model_driven"}
-            })
-            edges = [
-                {"source": "main_agent", "target": "__end__"}
-            ]
-            entry_point = "main_agent"
-            
-        workflow_data = {
-            "workflow_id": f"workflow-{uuid.uuid4().hex[:8]}",
-            "name": f"Generated Flow: {user_prompt[:30]}...",
-            "description": f"Automatically generated workflow for request: {user_prompt}",
-            "tools": tools,
-            "rag_sources": rag_sources,
-            "agents": agents,
-            "edges": edges,
-            "entry_point": entry_point,
-            "hitl": {
-                "interruption_points": [],
-                "approval_timeout": 300,
-                "notification_channel": "slack"
-            }
-        }
-        
-        # Enforce validation and parsing
-        validated = WorkflowSchema(**workflow_data)
-        return validated.model_dump()

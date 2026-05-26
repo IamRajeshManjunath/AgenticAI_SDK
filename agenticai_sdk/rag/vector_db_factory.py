@@ -20,11 +20,33 @@ class VectorDBClientFactory:
     """Factory that resolves ``RAGConfig`` into a usable vector DB client
     and the corresponding LangChain ``Embeddings`` instance.
 
+    Supports built-in providers, a universal HTTP connector, and a custom
+    adapter registry for plugging in any RAG backend.
+
     Usage::
 
         factory = VectorDBClientFactory()
         client, embeddings = await factory.create(rag_config)
+
+        # Register a custom adapter
+        factory.register_adapter("my_custom_db", MyCustomClient)
     """
+
+    _adapter_registry: dict[str, type] = {}
+
+    @classmethod
+    def register_adapter(cls, name: str, adapter_class: type) -> None:
+        """Register a custom vector DB adapter class.
+
+        The adapter_class must have an async ``search()`` method and accept
+        ``(connection_uri, api_key)`` constructor args.
+        """
+        cls._adapter_registry[name] = adapter_class
+        logger.info("vector_db_adapter_registered", name=name, adapter=adapter_class.__name__)
+
+    @classmethod
+    def get_registered_adapters(cls) -> dict[str, type]:
+        return dict(cls._adapter_registry)
 
     async def create(self, config: RAGConfig) -> tuple[Any, Any]:
         """Create and return ``(vector_db_client, embeddings_instance)``.
@@ -66,7 +88,15 @@ class VectorDBClientFactory:
                 return await self._create_chroma_client(config.connection_uri)
             elif config.vector_db == VectorDBProvider.FIAAS:
                 return await self._create_fiaas_client(config.connection_uri)
+            elif config.vector_db == VectorDBProvider.UNIVERSAL:
+                return await self._create_universal_client(config)
             else:
+                # Check custom adapter registry
+                provider_name = config.vector_db.value
+                if provider_name in self._adapter_registry:
+                    adapter_cls = self._adapter_registry[provider_name]
+                    api_key = os.getenv(config.api_key_env_var) if config.api_key_env_var else None
+                    return adapter_cls(config.connection_uri, api_key)
                 raise VectorDBConnectionError(
                     f"Unsupported vector DB provider: {config.vector_db}",
                     detail={"provider": config.vector_db.value},
@@ -119,6 +149,32 @@ class VectorDBClientFactory:
         except ImportError:
             logger.warning("chromadb not installed — returning mock client")
             return _MockVectorDBClient("chromadb", uri)
+
+    async def _create_universal_client(self, config: RAGConfig) -> Any:
+        """Create a universal HTTP RAG connector from config."""
+        from agenticai_sdk.rag.universal_connector import (
+            UniversalRAGConnector,
+            UniversalRAGConnectorConfig,
+        )
+
+        connector_config = UniversalRAGConnectorConfig(
+            base_url=config.universal_base_url or config.connection_uri,
+            search_endpoint=config.universal_search_endpoint or "/search",
+            upsert_endpoint=config.universal_upsert_endpoint or "/upsert",
+            request_template=config.universal_request_template or {"query": "{query}", "top_k": "{top_k}"},
+            response_path=config.universal_response_path or "results",
+            content_field=config.universal_content_field or "content",
+            score_field=config.universal_score_field or "score",
+            headers=config.universal_headers or {},
+            auth_type=config.universal_auth_type,
+            auth_value=config.universal_auth_value,
+        )
+        logger.info(
+            "universal_rag_connector_created",
+            base_url=connector_config.base_url,
+            search_endpoint=connector_config.search_endpoint,
+        )
+        return UniversalRAGConnector(connector_config)
 
     async def _create_fiaas_client(self, uri: str) -> Any:
         """Create a FIAAS (FAISS) client."""

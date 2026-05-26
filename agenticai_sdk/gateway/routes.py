@@ -425,22 +425,66 @@ async def create_tool(request: Request, db: Session = Depends(get_session)):
     return {"id": t.id, "name": t.name}
 
 # --- Database / Settings ---
+from agenticai_sdk.db.database import get_db_status as _get_db_status, reset_db, _load_config
+from agenticai_sdk.db.models import WorkflowTrace as _WorkflowTrace
+from pydantic import BaseModel as _BaseModel
+
+class DBConnectRequest(_BaseModel):
+    core_db_url: str
+    routing_map: dict[str, str] | None = None
+    persist: bool = True
+
+class DBConnectResponse(_BaseModel):
+    success: bool
+    provider: str
+    url: str
+    message: str
+
 @router.get("/db/status", tags=["saas-db"])
 async def get_db_status(db: Session = Depends(get_session)):
-    return {
-        "status": "connected",
-        "provider": "sqlalchemy",
-        "latency_ms": 5,
-        "collections": {
-            "workflows": db.query(Workflow).count(),
-            "tools": db.query(DBTool).count(),
-            "activity": db.query(ActivityLog).count(),
-        }
+    status = _get_db_status()
+    status["collections"] = {
+        "workflows": db.query(Workflow).count(),
+        "tools": db.query(DBTool).count(),
+        "activity": db.query(ActivityLog).count(),
+        "traces": db.query(_WorkflowTrace).count(),
     }
+    return status
 
-@router.post("/db/connect", tags=["saas-db"])
-async def connect_database(request: Request):
-    return {"success": True, "message": "Connection configs are updated in .env"}
+@router.post("/db/connect", response_model=DBConnectResponse, tags=["saas-db"])
+async def connect_database(body: DBConnectRequest):
+    """Connect to a new database at runtime. Config is persisted so it survives restarts."""
+    try:
+        engines = reset_db(core_db_url=body.core_db_url, routing_map=body.routing_map)
+        provider = "sqlite"
+        if "postgresql" in body.core_db_url:
+            provider = "postgresql"
+        elif "clickhouse" in body.core_db_url:
+            provider = "clickhouse"
+        return DBConnectResponse(
+            success=True,
+            provider=provider,
+            url=body.core_db_url,
+            message=f"Database connected successfully ({provider}). All tables created/verified.",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {exc}")
+
+@router.get("/db/config", tags=["saas-db"])
+async def get_db_config():
+    """Return the current (persisted) database configuration."""
+    config = _load_config()
+    if config:
+        return {"configured": True, **config}
+    return {"configured": False, "message": "No persisted config found — using default SQLite."}
+
+@router.post("/db/reset", tags=["saas-db"])
+async def reset_database():
+    """Clear the persisted config and reset to default SQLite."""
+    from agenticai_sdk.db.database import _clear_config, init_db
+    _clear_config()
+    init_db()
+    return {"success": True, "message": "Reset to default SQLite database."}
 
 @router.get("/activity", tags=["saas-activity"])
 async def get_activity(db: Session = Depends(get_session)):

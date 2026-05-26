@@ -88,3 +88,11 @@ class AgentNodeConfig(BaseModel):
         default=None,
         description="JSON schema dictating the structured output format for this agent.",
     )
+    agent_context_path: str | None = Field(
+        default=None,
+        description="Path to a directory containing per-agent agent.md and skill.md files for context injection.",
+    )
+    skill_context_path: str | None = Field(
+        default=None,
+        description="Path to a specific skill.md file for this agent's dynamic rule bindings.",
+    )

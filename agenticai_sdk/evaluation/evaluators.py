@@ -28,6 +28,9 @@ class ResponseEvalResult(BaseModel):
         relevance_score: Query-response relevance (0.0–1.0).
         coherence_score: Internal coherence and readability (0.0–1.0).
         groundedness_score: Factual alignment with source documents (0.0–1.0).
+        faithfulness_score: Claim-level support from source documents (0.0–1.0).
+        completeness_score: Coverage of query facets (0.0–1.0).
+        conciseness_score: Information density without verbosity (0.0–1.0).
         overall_score: Weighted composite score.
         details: Detailed evaluation metadata.
     """
@@ -35,6 +38,9 @@ class ResponseEvalResult(BaseModel):
     relevance_score: float = 0.0
     coherence_score: float = 0.0
     groundedness_score: float = 0.0
+    faithfulness_score: float = 0.0
+    completeness_score: float = 0.0
+    conciseness_score: float = 0.0
     overall_score: float = 0.0
     details: dict[str, Any] = Field(default_factory=dict)
 
@@ -214,17 +220,24 @@ class ResponseQualityEvaluator:
         relevance = self.evaluate_relevance(query, response)
         coherence = self.evaluate_coherence(response)
         groundedness = self.evaluate_groundedness(response, retrieved_docs or [])
+        faithfulness = self.evaluate_faithfulness(response, retrieved_docs or [])
+        completeness = self.evaluate_completeness(query, response)
+        conciseness = self.evaluate_conciseness(response)
 
         # Weighted composite
         if retrieved_docs:
-            overall = 0.35 * relevance + 0.30 * coherence + 0.35 * groundedness
+            overall = (0.20 * relevance + 0.15 * coherence + 0.20 * groundedness
+                       + 0.20 * faithfulness + 0.15 * completeness + 0.10 * conciseness)
         else:
-            overall = 0.55 * relevance + 0.45 * coherence
+            overall = 0.35 * relevance + 0.25 * coherence + 0.25 * completeness + 0.15 * conciseness
 
         return ResponseEvalResult(
             relevance_score=relevance,
             coherence_score=coherence,
             groundedness_score=groundedness,
+            faithfulness_score=faithfulness,
+            completeness_score=completeness,
+            conciseness_score=conciseness,
             overall_score=round(overall, 4),
             details={
                 "query_length": len(query),
@@ -232,6 +245,110 @@ class ResponseQualityEvaluator:
                 "doc_count": len(retrieved_docs or []),
             },
         )
+
+    def evaluate_faithfulness(self, response: str, retrieved_docs: list[Any]) -> float:
+        """Score faithfulness — what fraction of claims in the response are
+        directly supported by the source documents.
+
+        Extracts sentence-level claims and checks each one against the
+        retrieved document text for term overlap.
+        """
+        if not response or not retrieved_docs:
+            return 0.5 if not retrieved_docs else 0.0
+
+        sentences = [s.strip() for s in response.replace("!", ".").replace("?", ".").split(".") if s.strip()]
+        if not sentences:
+            return 0.0
+
+        # Build a combined document corpus
+        doc_text = ""
+        for doc in retrieved_docs:
+            if isinstance(doc, dict):
+                doc_text += " " + str(doc.get("content", doc.get("page_content", "")))
+            elif hasattr(doc, "page_content"):
+                doc_text += " " + str(doc.page_content)
+            else:
+                doc_text += " " + str(doc)
+        doc_tokens = set(self._tokenize(doc_text))
+
+        if not doc_tokens:
+            return 0.5
+
+        supported = 0
+        for sent in sentences:
+            sent_tokens = set(self._tokenize(sent))
+            if not sent_tokens:
+                continue
+            # A claim is "supported" if a majority of its content words appear in docs
+            overlap = sent_tokens & doc_tokens
+            if len(overlap) / len(sent_tokens) >= 0.3:
+                supported += 1
+
+        return round(min(1.0, supported / len(sentences)), 4)
+
+    def evaluate_completeness(self, query: str, response: str) -> float:
+        """Score completeness — what fraction of query facets are addressed
+        in the response.
+
+        Extracts key terms/facets from the query and measures their coverage
+        in the response.
+        """
+        if not query or not response:
+            return 0.0
+
+        query_tokens = set(self._tokenize(query))
+        response_tokens = set(self._tokenize(response))
+
+        if not query_tokens:
+            return 0.0
+
+        covered = query_tokens & response_tokens
+        # Weighted: every covered token gets 1 point, but we penalise
+        # very short responses that only match one keyword.
+        coverage = len(covered) / len(query_tokens)
+
+        # Length bonus: a complete answer should be at least as long as the query
+        resp_len = len(response_tokens)
+        q_len = len(query_tokens)
+        length_factor = min(1.0, resp_len / max(q_len * 1.5, 1))
+
+        return round(min(1.0, 0.7 * coverage + 0.3 * length_factor), 4)
+
+    def evaluate_conciseness(self, response: str) -> float:
+        """Score conciseness — ratio of meaningful content to filler.
+
+        Penalises excessive repetition and low information density.
+        """
+        if not response:
+            return 0.0
+
+        words = self._tokenize(response)
+        if not words:
+            return 0.0
+
+        # Type-token ratio (unique / total) — higher = more concise
+        ttr = len(set(words)) / len(words)
+
+        # Sentence length penalty — extremely long or short sentences hurt
+        sentences = [s.strip() for s in response.replace("!", ".").replace("?", ".").split(".") if s.strip()]
+        if sentences:
+            avg_sent_len = len(words) / len(sentences)
+            if 8 <= avg_sent_len <= 30:
+                sent_score = 1.0
+            elif avg_sent_len < 4 or avg_sent_len > 60:
+                sent_score = 0.3
+            else:
+                sent_score = 0.7
+        else:
+            sent_score = 0.5
+
+        # Filler word penalty
+        filler_words = {"basically", "actually", "literally", "essentially", "simply", "just", "very", "really", "quite", "extremely", "highly", "importantly", "additionally", "furthermore", "moreover", "nevertheless", "nonetheless"}
+        filler_count = sum(1 for w in words if w in filler_words)
+        filler_rate = filler_count / len(words)
+        filler_score = max(0.0, 1.0 - filler_rate * 10)
+
+        return round(min(1.0, 0.4 * ttr + 0.3 * sent_score + 0.3 * filler_score), 4)
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:

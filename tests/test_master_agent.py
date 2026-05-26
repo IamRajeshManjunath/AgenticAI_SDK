@@ -6,57 +6,51 @@ from fastapi.testclient import TestClient
 
 from agenticai_sdk.gateway.app import create_app
 from Master_agent.rag import MasterAgentRAG
-from Master_agent.agent import StructuredMasterAgent
+from Master_agent.context_loader import AgentContextLoader
+
 
 @pytest.fixture
 def client():
     app = create_app(log_level="WARNING")
     return TestClient(app)
 
+
 class TestMasterAgentRAG:
     def test_rag_seeding_and_retrieval(self):
         rag = MasterAgentRAG()
         assert len(rag.documents) > 0
-        
-        # Test basic retrieval
+
         chunks = rag.retrieve("search web", top_k=2)
         assert len(chunks) > 0
         assert any("schema" in c["content"].lower() or "sdk" in c["content"].lower() for c in chunks)
 
-class TestStructuredMasterAgent:
-    def test_deterministic_proposal_generation(self):
-        agent = StructuredMasterAgent()
-        
-        # Test standard workflow generation
-        proposal = agent.generate_proposal("Build a flow to search google for current weather")
-        assert "workflow_id" in proposal
-        assert "agents" in proposal
-        assert "edges" in proposal
-        assert "entry_point" in proposal
-        assert len(proposal["agents"]) > 0
-        
-        # Verify pydantic schema compliance
-        from agenticai_sdk.schemas.workflow import WorkflowSchema
-        validated = WorkflowSchema(**proposal)
-        assert validated.workflow_id == proposal["workflow_id"]
+
+class TestAgentContextLoader:
+    def test_load_all_contexts_empty(self):
+        loader = AgentContextLoader(agents_dir="/tmp/nonexistent_agents_dir")
+        contexts = loader.load_all_contexts()
+        assert contexts == []
+
+    def test_format_context_block_empty(self):
+        loader = AgentContextLoader()
+        assert loader.format_context_block([]) == ""
+
+    def test_extract_yaml_frontmatter(self):
+        content = '---\nrole: "researcher"\nmodel: gpt-4o\n---\n\nBody text here'
+        frontmatter, body = AgentContextLoader.extract_yaml_frontmatter(content)
+        assert frontmatter["role"] == "researcher"
+        assert frontmatter["model"] == "gpt-4o"
+        assert "Body text here" in body
+
+    def test_extract_yaml_frontmatter_none(self):
+        content = "Just plain markdown body"
+        frontmatter, body = AgentContextLoader.extract_yaml_frontmatter(content)
+        assert frontmatter == {}
+        assert body == content
+
 
 class TestMasterGatewayEndpoints:
-    def test_master_generate_route(self, client):
-        payload = {"prompt": "Create an agent that writes articles using python code"}
-        resp = client.post("/api/v1/workflow/master/generate", json=payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["success"] is True
-        assert "proposal" in data
-        assert "workflow_id" in data["proposal"]
-
-    def test_master_compile_route(self, client):
-        # Obtain a valid proposal first
-        agent = StructuredMasterAgent()
-        proposal = agent.generate_proposal("Simple test agent")
-        
-        resp = client.post("/api/v1/workflow/master/compile", json=proposal)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["success"] is True
-        assert "workflow_id" in data
+    def test_master_generate_route_no_key(self, client):
+        """Without a valid API key, the endpoint should return 500."""
+        resp = client.post("/api/v1/workflow/master/generate", json={"prompt": "test"})
+        assert resp.status_code == 500

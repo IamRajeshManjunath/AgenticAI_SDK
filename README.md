@@ -61,41 +61,80 @@ Orchestrator
 
 ```
 agenticai_sdk/
-├── __init__.py
-├── exceptions.py                    # Domain exception hierarchy (expanded v0.3)
+├── __init__.py                      # version = "0.2.0"
+├── exceptions.py                    # Domain exception hierarchy (21 exception types)
 ├── schemas/                         # Pydantic V2 models
+│   ├── __init__.py                  # Exports all schema types
 │   ├── llm.py                       # LLMConfig + LLMProvider enum
 │   ├── tools.py                     # ToolConfig + ToolType (mcp, custom_python, rest, built_in)
 │   ├── prompts.py                   # PromptTemplateConfig
-│   ├── memory.py                    # MemoryConfig + enums
+│   ├── memory.py                    # MemoryConfig + ExecutionMemoryType + CachingStrategy
 │   ├── hitl.py                      # HITLConfig + NotificationChannel enum
-│   ├── rag.py                       # RAGConfig + VectorDB/Embedding enums
-│   ├── topology.py                  # DeepAgentTopologyConfig
+│   ├── rag.py                       # RAGConfig + VectorDBProvider + EmbeddingProvider + Universal connector fields
+│   ├── topology.py                  # DeepAgentTopologyConfig + OrchestrationMode + FallbackStrategy
 │   ├── middleware_config.py         # MiddlewareConfig + Budget/PII/Firewall/Compression/Consensus
-│   ├── agent_node.py               # AgentNodeConfig (+ input_schema, output_schema)
+│   ├── agent_node.py               # AgentNodeConfig (+ fallback_llms, consensus_config, middleware_config, input/output schema, agent_context_path, skill_context_path)
 │   ├── edges.py                     # EdgeConfig (JSON-based conditional routing)
-│   └── workflow.py                  # WorkflowSchema (root + referential integrity)
-├── db/                              # Multi-DB Persistence Layer (NEW)
-│   ├── database.py                  # Dynamic DB Router (Postgres/SQLite/Clickhouse)
-│   └── models.py                    # SQLAlchemy Models (Audits, Traces, Workspaces)
+│   ├── workflow.py                  # WorkflowSchema (root + referential integrity validators)
+│   └── integration.py              # IntegrationConfig + IntegrationType enum (NEW)
+├── state/                           # Shared state type
+│   └── workflow_state.py            # WorkflowState TypedDict (messages, scratchpad, retrieved_context, etc.)
+├── db/                              # Multi-DB Persistence Layer
+│   ├── database.py                  # Dynamic DB Router (Postgres/SQLite/ClickHouse)
+│   ├── models.py                    # SQLAlchemy Models (9 tables: Workspace, Workflow, Tool, ActivityLog, WorkflowTrace, SchemaAuditTrail, BillingData, CronJob, IntegrationConnection)
+│   └── dal.py                       # Data Access Layer (RelationalDAL, MongoDAL, DALFactory, DALEncryptor)
 ├── middleware/                       # Execution Safety & Audit Layer
 │   ├── __init__.py
 │   ├── base.py                      # MiddlewareBase, MiddlewarePipeline
 │   ├── budget_guardrails.py         # Token/cost estimation, loop timeouts
-│   ├── pii_masking.py               # PII/PHI detection, reversible masking
+│   ├── pii_masking.py               # PII/PHI detection, reversible masking vault
 │   ├── prompt_injection_firewall.py # Pattern + semantic injection detection
-│   ├── schema_validation.py         # JSON Schema Auditor (Logs to SQL)
+│   ├── context_compression.py       # Truncation, summarization, schema dropping
 │   ├── rate_limiter.py              # Throttling guardrail
-│   └── context_compression.py       # Truncation, summarization, schema dropping
+│   ├── schema_validation.py         # JSON Schema Auditor (logs to SQL)
+│   └── prometheus_metrics.py        # Prometheus metric counters/histograms
+├── orchestration/                    # Enterprise Coordination
+│   ├── __init__.py
+│   ├── schema_mapper.py             # Fuzzy JSON normalization (exact/case-insensitive/fuzzy/LLM)
+│   ├── hitl_breakpoints.py          # State freeze/thaw + Slack/Teams webhook dispatch
+│   ├── fallback_router.py           # LLM failover with state preservation
+│   └── consensus_broker.py          # Multi-instance agreement with similarity scoring
+├── deep_agent/                       # DeepAgent Cognitive Loop
+│   ├── __init__.py
+│   └── factory.py                   # DeepAgentFactory (model_driven/agent_driven loops)
+├── rag/                              # RAG Subsystem
+│   ├── __init__.py
+│   ├── vector_db_factory.py         # VectorDBClientFactory (Qdrant, Pinecone, PgVector, ChromaDB, FAISS, Universal, adapter registry)
+│   ├── retriever_engine.py          # KnowledgeRetrieverEngine (async retrieval, S3/upload ingestion)
+│   ├── context_injector.py          # ContextInjector (document formatting for prompt injection)
+│   └── universal_connector.py       # UniversalRAGConnector — generic HTTP connector for any RAG DB (NEW)
+├── runtime/                          # Executive Runtime
+│   ├── __init__.py                  # Lazy-loads Orchestrator
+│   ├── orchestrator.py              # Macro-execution engine (compiles WorkflowSchema -> LangGraph StateGraph)
+│   ├── llm_factory.py               # LLMClientFactory (OpenAI, Anthropic, Ollama)
+│   ├── tool_registry.py             # ToolRegistry (MCP, REST API, custom Python, built-in, integration tools)
+│   ├── integration_registry.py      # IntegrationRegistry (Slack, Teams, Outlook, WhatsApp)
+│   ├── skills_parser.py             # SKILLS.md parser for dynamic config mutation (+ parse_directory, parse_agent_md)
+│   ├── agent_context_loader.py      # Per-agent agent.md / skill.md context loader (NEW)
+│   ├── cron_daemon.py               # CRON scheduling daemon with lease locks
+│   └── context_engine.py            # Prompt rendering, system message building, memory window
 ├── evaluation/                       # Observability Suite
 │   ├── __init__.py
 │   ├── trace_collector.py           # OTel Bridge + SQL Span Trees
 │   ├── metrics.py                   # Latency/token/cost aggregation
+│   ├── evaluators.py                # ResponseQualityEvaluator + WorkflowEvaluator
 │   └── dashboard.py                 # FastAPI observability API endpoints
-└── gateway/
-    ├── middleware.py                 # ExecutionTrackingMiddleware
-    ├── routes.py                    # FastAPI route handlers
-    └── app.py                       # App factory + structlog config
+├── gateway/                          # FastAPI Gateway
+│   ├── __init__.py
+│   ├── app.py                       # App factory + structlog config + CORS + exception handlers
+│   ├── routes.py                    # FastAPI route handlers (workflow, HITL, SaaS CRUD, Master Agent, DB mgmt, observability)
+│   ├── integration_routes.py        # Integration management endpoints (connect/disconnect/test) (NEW)
+│   └── middleware.py                # ExecutionTrackingMiddleware (request ID, timing)
+├── Master_agent/                     # Upstream natural-language intake
+│   ├── __init__.py                  # Exports StructuredMasterAgent, MasterAgentRAG
+│   ├── agent.py                     # StructuredMasterAgent — LLM-based schema synthesis (no fallback)
+│   ├── rag.py                       # MasterAgentRAG — keyword-based doc retrieval
+│   └── context_loader.py            # Agent context file scanner (agent.md / skill.md) (NEW)
 ```
 
 ---
@@ -137,7 +176,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 curl -X POST http://localhost:8000/api/v1/workflow/run \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "enterprise-hierarchy-v2",
+    "workflow_id": "enterprise-hierarchy-v3",
     "name": "Hierarchical Enterprise Workflow (v0.2)",
     "description": "A complex manager-worker workflow. A '\''Coordinator'\'' agent delegates specific sub-tasks to '\''Researcher'\'' and '\''Writer'\'' specialists using hierarchical tool calls. Includes safety guardrails, fallbacks, and consensus.",
     "agents": [
@@ -271,6 +310,72 @@ Protect your LLM budget and API tiers with a built-in rate limiter middleware.
 | `GET /api/v1/observability/metrics/prometheus` | Prometheus export |
 | `GET /api/v1/observability/evaluations/{wf_id}` | Quality evaluations |
 | `GET /api/v1/observability/health` | Extended health check |
+
+---
+
+## Master Agent (Upstream Intake)
+
+The `Master_agent/` module acts as the primary system ingress — it translates natural-language user prompts into valid `WorkflowSchema` JSON without requiring the user to understand the schema format.
+
+```
+User Prompt ("Build me a research + writing pipeline...")
+       │
+       ▼
+  MasterAgentRAG (keyword retrieval from reference docs)
+       │
+       ▼
+  StructuredMasterAgent
+     ├── OpenAI with_structured_output(WorkflowSchema)  ← LLM-driven synthesis
+     └── Rule-based deterministic fallback              ← keyword-triggered templates
+       │
+       ▼
+  Valid WorkflowSchema JSON
+```
+
+### StructuredMasterAgent
+- **`generate_proposal(user_prompt)`** — Main entry point. Returns a complete `WorkflowSchema`-compatible dict.
+- Uses `MasterAgentRAG` to retrieve context from `master_schema_reference.json`, `README.md`, and `implementation_plan.md`.
+- Attempts structured LLM output first; falls back to a deterministic rule-based engine that creates single/multi-agent workflows based on keywords (search, python, weather, write, report).
+
+### MasterAgentRAG
+- Chunks reference documents by markdown headers and JSON boundaries.
+- Scores chunks by keyword overlap with boost for title matches.
+- Returns top-k relevant documentation snippets to guide the LLM synthesis.
+
+---
+
+## Frontend Application
+
+A Next.js application (`Frontend/frontend/`) provides a visual interface for building, monitoring, and managing workflows.
+
+### Tech Stack
+- **Framework**: Next.js (App Router), TypeScript
+- **Styling**: Tailwind CSS + shadcn/ui (~45 components)
+- **State**: Zustand store
+- **DB Adapters**: PostgreSQL (production), Mock adapter (development)
+
+### Pages
+| Route | Description |
+|-------|-------------|
+| `/` | Main workflow canvas — drag-and-drop agent graph editor |
+| `/activity` | Execution activity log and history |
+| `/billing` | Usage metrics and billing data |
+| `/rag` | RAG source configuration and document management |
+| `/settings` | Global settings and integration configuration |
+| `/tools` | Tool registry management |
+
+### Key Components
+- **`workflow/workflow-canvas.tsx`** — Interactive DAG editor for agent nodes and edges
+- **`workflow/agent-config-sidebar.tsx`** — Per-agent configuration panel (LLM, tools, middleware)
+- **`workflow/agent-node.tsx`** — Visual node component on the canvas
+- **`workflow/registry-drawer.tsx`** — Drawer for browsing tools, RAG sources, and templates
+- **`global-sidebar.tsx`** — Main navigation sidebar
+- **`ui/`** — 45+ reusable shadcn/ui components (accordion, dialog, chart, form, table, etc.)
+
+### Data Layer
+- `lib/api.ts` — HTTP client for the FastAPI gateway
+- `lib/store.ts` — Zustand state management
+- `lib/db/` — Multi-adapter DB layer (PostgreSQL adapter + mock adapter for development)
 
 ---
 
@@ -427,6 +532,12 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 
 ## API Reference
 
+### System Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Root info with endpoint listing |
+| `GET` | `/health` | Simple health check |
+
 ### `POST /api/v1/workflow/run`
 | Field | Type | Description |
 |-------|------|-------------|
@@ -443,19 +554,61 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 | `state_updates` | `dict?` | Optional state overrides before resumption |
 | `workflow` | `WorkflowSchema` | Original workflow schema |
 
+### Master Agent Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/workflow/master/generate` | Generate a WorkflowSchema proposal from a natural-language prompt |
+| `POST` | `/api/v1/workflow/master/compile` | Validate, compile, and persist a WorkflowSchema |
+
+### SaaS CRUD Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/workflow/workflows` | List all persisted workflows |
+| `POST` | `/api/v1/workflow/workflows` | Create a new workflow |
+| `GET` | `/api/v1/workflow/workflows/{id}` | Get a workflow by ID |
+| `PATCH` | `/api/v1/workflow/workflows/{id}` | Update a workflow |
+| `DELETE` | `/api/v1/workflow/workflows/{id}` | Delete a workflow |
+| `DELETE` | `/api/v1/workflow/workspaces/{id}` | Delete a workspace (cascades to workflows) |
+| `GET` | `/api/v1/workflow/tools` | List all registered tools |
+| `POST` | `/api/v1/workflow/tools` | Register a new tool (MCP, custom Python, etc.) |
+| `GET` | `/api/v1/workflow/activity` | Recent activity log (last 50 entries) |
+| `GET` | `/api/v1/workflow/metrics` | Prometheus metrics export (`/metrics`)
+
+### Database Management Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/workflow/db/status` | Database connection status and collection counts |
+| `POST` | `/api/v1/workflow/db/connect` | Connect to a new database (persisted for restarts) |
+| `GET` | `/api/v1/workflow/db/config` | View current persisted database configuration |
+| `POST` | `/api/v1/workflow/db/reset` | Reset to default SQLite database |
+
+### Integration Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/workflow/integrations/connect` | Register a third-party integration (Slack, Teams, Outlook, WhatsApp) |
+| `GET` | `/api/v1/workflow/integrations` | List all active integration connections |
+| `DELETE` | `/api/v1/workflow/integrations/{type}` | Disconnect an integration |
+| `POST` | `/api/v1/workflow/integrations/{type}/test` | Send a test message to verify connectivity |
+
 ---
 
 ## Domain Exceptions
 
 | Exception | Trigger |
 |-----------|---------|
+| `SchemaValidationError` | Pydantic model structural or semantic validation failure |
+| `PromptTemplateError` | Prompt template variables mismatch declared `input_variables` |
 | `WorkflowCompilationError` | Graph compilation failure |
 | `ToolResolutionError` | Unknown `tool_id` reference |
+| `ToolExecutionError` | Tool invocation runtime failure |
 | `LLMProviderError` | LLM client instantiation failure |
 | `RAGFetchException` | Vector DB retrieval failure |
+| `VectorDBConnectionError` | Vector database client connection failure |
+| `EmbeddingError` | Embedding provider encoding failure |
 | `DeepAgentExecutionError` | Inner cognitive loop fatal error |
 | `DeepAgentFallbackExhausted` | All fallback strategies exhausted |
 | `HITLTimeoutError` | Human approval timeout exceeded |
+| `HITLRejectError` | Human reviewer explicitly rejected a step |
 | `HITLDispatchError` | Webhook notification dispatch failure |
 | `GraphRoutingError` | Conditional edge evaluation failure |
 | `BudgetExceededError` | Token or cost budget threshold breached |
@@ -467,6 +620,281 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 | `ConsensusNotReachedError` | Agent consensus threshold not met |
 | `FallbackExhaustedError` | All fallback LLM providers exhausted |
 | `EvaluationError` | Quality evaluation computation failure |
+
+---
+
+## Database Schema
+
+9 SQLAlchemy-backed tables managed in `agenticai_sdk/db/models.py`:
+
+| Table | Key Fields | Purpose |
+|-------|------------|---------|
+| `workspaces` | id, name, description, created_at, updated_at | Multi-tenant workspace isolation |
+| `workflows` | id, workspace_id (FK), name, description, config (JSON) | Persisted workflow definitions |
+| `tools` | id, name, description, tool_type, code_or_url | Registered tool metadata |
+| `activity_logs` | id, workspace_id, workflow_id, event_type, details (JSON) | Audit trail for all mutations |
+| `workflow_traces` | id, workflow_id (FK), trace_id, duration_ms, total_tokens, cost_usd, error_count, span_tree (JSON) | Deep execution traces |
+| `schema_audit_trails` | id, agent_id, direction, payload (JSON), schema_definition (JSON), is_valid | Immutable IO payload audit log |
+| `billing_data` | id, workspace_id, amount, currency, period_start, period_end, metrics (JSON) | Per-workspace billing records |
+| `cron_jobs` | id, cron_expression, target_type, target_id, payload (JSON), last_run_at, next_run_at, status, locked_by, locked_until | Scheduled job definitions with lease-based locking |
+| `integration_connections` | id, workspace_id, integration_type, name, auth_state (JSON), rate_limits (JSON), is_active | External service connection store |
+
+### Data Access Layer (`db/dal.py`)
+- `RelationalDAL` — CRUD operations for SQLAlchemy models
+- `MongoDAL` — MongoDB-compatible operations
+- `DALFactory` — Runtime adapter selection
+- `DALEncryptor` — Transparent field-level encryption for sensitive data
+
+### Plug-and-Play Database Persistence
+The SDK **connects once and persists forever**. Configure your database once — it survives restarts.
+
+**Resolution order**:
+1. Explicit `--db-url` CLI argument
+2. `.agenticai_db_config` file (persisted from a previous session)
+3. `AGENTICAI_DB_URL` environment variable
+4. SQLite fallback (`sqlite:///agenticai.db` — zero config, works immediately)
+
+```bash
+# First launch — zero config (auto-creates agenticai.db)
+python main.py
+
+# Switch to PostgreSQL — saved for all future restarts
+curl -X POST http://localhost:8000/api/v1/workflow/db/connect \
+  -H "Content-Type: application/json" \
+  -d '{"core_db_url": "postgresql://user:pass@host:5432/agenticai"}'
+
+# Or pass at startup
+python main.py --db-url postgresql://user:pass@host:5432/agenticai
+```
+
+**Management endpoints**:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/workflow/db/config` | View current persisted config |
+| `POST` | `/api/v1/workflow/db/connect` | Connect to a new DB (persisted) |
+| `POST` | `/api/v1/workflow/db/reset` | Reset to default SQLite |
+
+---
+
+## Universal RAG Connector
+
+Connect to **any** RAG database via a generic HTTP interface. No SDK-specific client required.
+
+```json
+{
+  "rag_id": "my_custom_db",
+  "vector_db": "universal",
+  "universal_base_url": "http://my-rag:8080",
+  "universal_search_endpoint": "/v1/query",
+  "universal_request_template": {
+    "text": "{query}",
+    "limit": "{top_k}"
+  },
+  "universal_response_path": "data.matches",
+  "universal_content_field": "text",
+  "universal_score_field": "relevance",
+  "universal_auth_type": "bearer",
+  "universal_auth_value": "your-token"
+}
+```
+
+### Adapter Registry
+For non-REST databases, register custom adapters:
+```python
+from agenticai_sdk.rag.vector_db_factory import VectorDBClientFactory
+VectorDBClientFactory.register_adapter("my_custom_db", MyCustomClient)
+```
+
+The factory resolves in this order: **built-in providers → adapter registry → universal connector**.
+
+---
+
+## Enhanced Quality Evaluators
+
+The `ResponseQualityEvaluator` now evaluates **6 dimensions**:
+
+| Dimension | Score Range | Method | Description |
+|-----------|-------------|--------|-------------|
+| Relevance | 0.0–1.0 | `evaluate_relevance()` | TF-IDF weighted term overlap with query |
+| Coherence | 0.0–1.0 | `evaluate_coherence()` | Vocabulary richness, sentence structure, structural markers |
+| Groundedness | 0.0–1.0 | `evaluate_groundedness()` | Response alignment with retrieved RAG source documents |
+| **Faithfulness** | 0.0–1.0 | `evaluate_faithfulness()` | Claim-level support — what fraction of claims are directly supported by source docs |
+| **Completeness** | 0.0–1.0 | `evaluate_completeness()` | Coverage of query facets/key terms in the response |
+| **Conciseness** | 0.0–1.0 | `evaluate_conciseness()` | Information density, type-token ratio, filler word penalty |
+
+The composite `overall_score` when documents are available:
+```python
+overall = (0.20 * relevance + 0.15 * coherence + 0.20 * groundedness
+           + 0.20 * faithfulness + 0.15 * completeness + 0.10 * conciseness)
+```
+
+---
+
+## Per-Agent Context Files (agent.md / skill.md)
+
+Each agent in a workflow can have its own markdown context files that provide customisation and behavioural guidelines.
+
+### Directory Convention
+```
+agents/
+  coordinator/
+    agent.md      # Role definition, behavioural context, YAML frontmatter
+    skill.md      # Dynamic IF/THEN skill rules (scoped to this agent)
+  researcher/
+    agent.md
+    skill.md
+```
+
+### agent.md
+May contain optional YAML frontmatter and markdown body:
+```yaml
+---
+role: "Senior Researcher"
+model_preference: "gpt-4o"
+temperature: 0.3
+---
+You are a senior researcher agent. You must always cite sources and
+prefer recent publications from 2024 onwards.
+```
+
+### skill.md
+Dynamic rules that mutate agent configuration at runtime:
+```markdown
+## Context Rules
+IF topic CONTAINS "urgent" THEN temperature = 0.1
+IF prompt CONTAINS "creative" THEN temperature = 0.8
+
+## Situational Boundaries
+max_tokens = 4096 WHEN priority == "high"
+```
+
+### Configuration
+Each `AgentNodeConfig` supports two new fields:
+```json
+{
+  "agent_id": "researcher",
+  "agent_context_path": "agents/researcher",
+  "skill_context_path": "agents/researcher/skill.md"
+}
+```
+
+---
+
+## Third-Party Integrations
+
+Connect Slack, Teams, Outlook, and WhatsApp once — connections persist in the database and are available as LangChain tools for agents to use in workflows.
+
+### Connect Once, Persist Forever
+```bash
+# Register a Slack connection
+curl -X POST http://localhost:8000/api/v1/workflow/integrations/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "integration_type": "slack",
+    "name": "My Workspace Slack",
+    "auth_state": {"webhook_url": "https://hooks.slack.com/..."}
+  }'
+
+# List active connections
+curl http://localhost:8000/api/v1/workflow/integrations
+
+# Test a connection
+curl -X POST http://localhost:8000/api/v1/workflow/integrations/slack/test \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello from AgenticAI!"}'
+
+# Disconnect
+curl -X DELETE http://localhost:8000/api/v1/workflow/integrations/slack
+```
+
+### Available Integrations
+| Type | Service | Auth Methods |
+|------|---------|-------------|
+| `slack` | Slack | Webhook URL, OAuth token |
+| `teams` | Microsoft Teams | Office 365 Connector Webhook |
+| `outlook` | Microsoft Outlook | Microsoft Graph API OAuth token |
+| `whatsapp` | WhatsApp | Meta Cloud API token + Phone Number ID |
+
+### Using Integrations as Agent Tools
+Once connected, integrations are automatically available as tools that agents can invoke in workflows. Load them via:
+```python
+from agenticai_sdk.runtime.tool_registry import ToolRegistry
+registry = ToolRegistry()
+registry.load_integration_tools(workspace_id="default")
+```
+
+Agent can then use tool names like `send_slack_message`, `send_teams_message`, `send_outlook_email`, or `send_whatsapp_message` in their workflow configurations.
+
+---
+
+## Runtime Subsystems
+
+### IntegrationRegistry (`runtime/integration_registry.py`)
+Manages third-party communication channels:
+- Slack, Microsoft Teams, Outlook, WhatsApp
+- OAuth flow management and token refresh
+- Per-channel rate limiting
+- Template-based message formatting
+
+### SkillsParser (`runtime/skills_parser.py`)
+Parses `SKILLS.md` files to dynamically mutate agent configuration at runtime:
+- Detects skill definitions, tool requirements, and middleware overrides
+- Merges parsed skills into the active `WorkflowSchema` before compilation
+
+### CronDaemon (`runtime/cron_daemon.py`)
+A lightweight CRON scheduler embedded in the runtime:
+- Expression parsing with `croniter`
+- Lease-based distributed locking (avoids duplicate execution in multi-instance deployments)
+- Targets: agent execution or workflow compilation
+- Status lifecycle: active → paused → terminated
+
+### ContextEngine (`runtime/context_engine.py`)
+Manages prompt construction and memory windows:
+- System message building from agent roles and middleware constraints
+- Memory window management (sliding window, summary-based)
+- RAG context injection into prompt templates
+- Token-aware truncation before LLM submission
+
+---
+
+## Infrastructure Files
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | Spins up Prometheus (port 9090) + Grafana (port 3000) for metrics dashboards (admin/admin) |
+| `prometheus.yml` | Prometheus scrape config — targets `host.docker.internal:8000` every 5s |
+| `pyproject.toml` | Build config (setuptools), Python >=3.12, all dependencies (pydantic, langchain, langgraph, fastapi, qdrant, pinecone, chromadb, faiss, sqlalchemy, boto3, prometheus-client, opentelemetry, croniter, cryptography, pymongo), Ruff linting (line-length=120) |
+| `pytest.ini` | Test discovery path (`tests/`) with `asyncio_mode = auto` |
+| `.env.example` | API key template for OpenAI, Anthropic, Qdrant, Pinecone |
+| `example_workflow.json` | Complete sample hierarchical workflow (coordinator → researcher → writer) |
+| `master_schema_reference.json` | Exhaustive reference schema showing every possible configuration option |
+| `implementation_plan.md` | Architecture breakdown, 8-domain model, 8-phase build order |
+| `delivery_summary.md` | Feature coverage matrix and delivery documentation |
+
+---
+
+## Testing
+
+The test suite lives in `tests/` and covers **83+ tests** across 8 files:
+
+| File | Tests | Scope |
+|------|-------|-------|
+| `test_schemas.py` | 20 | LLMConfig, PromptTemplate, ToolConfig, RAGConfig, Topology, WorkflowSchema, EdgeConfig validation |
+| `test_middleware.py` | 14 | Pipeline ordering, Budget, PII masking, Firewall, Compression |
+| `test_orchestration.py` | 12 | SchemaMapper, HITL breakpoints, Consensus (similarity/temperatures) |
+| `test_evaluation.py` | 11 | TraceCollector, MetricsRegistry, ResponseQuality, WorkflowEvaluator |
+| `test_gateway.py` | 5 | Health check, Request-ID header, WorkflowRun, HITL approve |
+| `test_runtime.py` | 11 | ToolRegistry (built-in, REST API, MCP), ContextEngine |
+| `test_rag.py` | 6 | ContextInjector formatting |
+| `test_master_agent.py` | 4 | MasterAgentRAG, StructuredMasterAgent, Gateway integration |
+
+```bash
+# Run the full test suite
+pytest
+
+# Run with coverage
+pytest --cov=agenticai_sdk
+```
 
 ---
 

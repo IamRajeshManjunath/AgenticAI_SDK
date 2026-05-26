@@ -28,6 +28,7 @@ from agenticai_sdk.exceptions import (
 )
 from agenticai_sdk.gateway.middleware import ExecutionTrackingMiddleware
 from agenticai_sdk.gateway.routes import router
+from agenticai_sdk.gateway.integration_routes import router as integration_router
 
 # ── Structlog configuration ───────────────────────────────────────────────────
 
@@ -142,16 +143,24 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     # ── Routes ───────────────────────────────────────────────────────────
     app.include_router(router)
     app.include_router(observability_router)
+    app.include_router(integration_router)
 
     # ── Health check ──────────────────────────────────────────────────────
     @app.get(
         "/health",
         tags=["system"],
         summary="Health check",
-        description="Returns the current health status of the gateway.",
+        description="Returns the current health status of the gateway with DB info.",
     )
     async def health_check() -> dict:
-        return {"status": "healthy", "service": "agenticai-sdk", "version": "0.2.0"}
+        from agenticai_sdk.db.database import get_db_status as _db_status
+        db = _db_status()
+        return {
+            "status": "healthy",
+            "service": "agenticai-sdk",
+            "version": "0.2.0",
+            "database": db,
+        }
 
     @app.get(
         "/",
