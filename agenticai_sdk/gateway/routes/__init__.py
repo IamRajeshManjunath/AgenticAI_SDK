@@ -14,6 +14,7 @@ from .workflows import router as workflows_router
 from .integrations import router as integrations_router
 from .observability import observability_router
 from .billing import router as billing_router
+from .secrets import router as secrets_router
 
 # Ordered list of all route modules for app factory iteration
 route_modules: list[APIRouter] = [
@@ -22,6 +23,7 @@ route_modules: list[APIRouter] = [
     integrations_router,
     observability_router,
     billing_router,
+    secrets_router,
 ]
 
 __all__ = [
@@ -31,4 +33,5 @@ __all__ = [
     "integrations_router",
     "observability_router",
     "billing_router",
+    "secrets_router",
 ]

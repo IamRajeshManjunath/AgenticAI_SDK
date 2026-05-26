@@ -26,6 +26,7 @@ import {
   Bot,
   LogOut,
   User,
+  Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
@@ -407,6 +408,19 @@ export function GlobalSidebar() {
               >
                 <Activity className="w-4 h-4" />
                 Activity Log
+              </Link>
+
+              <Link
+                href="/secrets"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  pathname === '/secrets'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <Lock className="w-4 h-4" />
+                Secrets
               </Link>
             </nav>
 

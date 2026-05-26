@@ -17,6 +17,7 @@
    - [workflows](#workflows)
    - [tools](#tools)
    - [rag_sources](#rag_sources)
+   - [secrets](#secrets)
    - [activity_logs](#activity_logs)
    - [workflow_traces](#workflow_traces)
    - [schema_audit_trails](#schema_audit_trails)
@@ -41,7 +42,7 @@
 3. `AGENTICAI_DB_URL` environment variable
 4. SQLite fallback (`sqlite:///agenticai.db`)
 
-**Total tables**: 16
+**Total tables**: 17
 
 ---
 
@@ -70,7 +71,7 @@ Multi-tenant workspace isolation. Each user gets a workspace on registration; me
 - `api_keys` → `api_keys` (one-to-many)
 - `tools` → `tools` (one-to-many)
 - `rag_sources` → `rag_sources` (one-to-many)
-- `secrets` → `secrets` (one-to-many, planned)
+- `secrets` → `secrets` (one-to-many)
 
 ---
 
@@ -378,6 +379,30 @@ External service connection store for third-party integrations (Slack, Teams, Ou
 
 ---
 
+### `secrets`
+
+Encrypted secret storage. Values are Fernet-encrypted at rest and decrypted on-demand for users with the `secret:read-value` permission.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `VARCHAR` | **PK**, index | UUID v4 |
+| `workspace_id` | `VARCHAR` | FK → `workspaces.id`, ON DELETE CASCADE, index, NOT NULL | Workspace scope |
+| `name` | `VARCHAR` | index, NOT NULL | Human-readable name (e.g. `OPENAI_API_KEY`) |
+| `encrypted_value` | `VARCHAR` | NOT NULL | Fernet-encrypted ciphertext (base64 token) |
+| `description` | `VARCHAR` | nullable | Free-text description |
+| `created_at` | `TIMESTAMPTZ` | server_default `now()` | |
+| `updated_at` | `TIMESTAMPTZ` | onupdate `now()` | |
+
+**Relationships**:
+- `workspace` → `workspaces` (many-to-one)
+
+**Encryption details**:
+- Algorithm: Fernet (AES-128-CBC + HMAC-SHA256, authenticated encryption)
+- Key derivation: `base64(SHA256(secret_key))` where `secret_key` = `SECRETS_ENCRYPTION_KEY` env var, or falls back to `SECRET_KEY`
+- Module: `agenticai_sdk/auth/secrets.py`
+
+---
+
 ### `billing_data`
 
 Per-workspace billing records. Written by Stripe webhook handlers when Stripe is configured.
@@ -482,7 +507,7 @@ workflow_runs_total{status="error"} 3
 | `DOMAIN` | `gateway/routes/billing.py` | Frontend domain for billing portal redirects | `http://localhost:3000` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `auth/router.py`, `gateway/routes/auth.py` | JWT token lifetime | `10080` (7 days) |
 | `LOG_LEVEL` | `gateway/app.py` | Logging verbosity | `INFO` |
-| `SECRETS_ENCRYPTION_KEY` | `auth/secrets.py` (planned) | Fernet key for encrypting secret values | Derived from `SECRET_KEY` via SHA-256 |
+| `SECRETS_ENCRYPTION_KEY` | `auth/secrets.py` | Fernet key for encrypting secret values | Derived from `SECRET_KEY` via SHA-256 |
 
 ---
 
@@ -502,7 +527,7 @@ workspaces ──┬── workflows ──┬── workflow_traces
              ├── activity_logs
              ├── billing_data
              ├── integration_connections
-             ├── secrets (planned)
+             ├── secrets
              └── plans
 
 cron_jobs ──→ workflows (target)
@@ -518,7 +543,7 @@ From `docker-compose.yml`:
 
 | Service | Image | Port | Data Volume | Purpose |
 |---------|-------|------|-------------|---------|
-| `postgres` | postgres:16-alpine | 5432 | `pgdata` | Primary database (16 tables) |
+| `postgres` | postgres:16-alpine | 5432 | `pgdata` | Primary database (17 tables) |
 | `redis` | redis:7-alpine | 6379 | `redisdata` | Rate limiter backend |
 | `prometheus` | prom/prometheus:latest | 9090 | `promdata` | Metrics scraping (15d retention) |
 | `grafana` | grafana/grafana:latest | 3000 | `grafanadata` | Metrics dashboards |

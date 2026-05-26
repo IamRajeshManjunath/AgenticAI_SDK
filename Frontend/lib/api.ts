@@ -240,12 +240,90 @@ export const crudApi = {
   },
 }
 
+// Secrets API
+export const secretApi = {
+  async list(): Promise<ApiResponse<Array<{
+    id: string
+    name: string
+    description: string | null
+    created_at: string | null
+    updated_at: string | null
+  }>>> {
+    return fetchApi('/secrets')
+  },
+
+  async get(id: string): Promise<ApiResponse<{
+    id: string
+    name: string
+    description: string | null
+    value: string
+    created_at: string | null
+    updated_at: string | null
+  }>> {
+    return fetchApi(`/secrets/${id}`)
+  },
+
+  async create(data: {
+    name: string
+    value: string
+    description?: string
+  }): Promise<ApiResponse<{
+    id: string
+    name: string
+    description: string | null
+    created_at: string | null
+    updated_at: string | null
+  }>> {
+    return fetchApi('/secrets', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async update(
+    id: string,
+    data: { name?: string; value?: string; description?: string }
+  ): Promise<ApiResponse<{
+    id: string
+    name: string
+    description: string | null
+    created_at: string | null
+    updated_at: string | null
+  }>> {
+    return fetchApi(`/secrets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return fetchApi(`/secrets/${id}`, { method: 'DELETE' })
+  },
+
+  async regenerate(
+    id: string,
+    data: { value: string; description?: string }
+  ): Promise<ApiResponse<{
+    id: string
+    name: string
+    description: string | null
+    created_at: string | null
+    updated_at: string | null
+  }>> {
+    return fetchApi(`/secrets/${id}/regenerate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+}
+
 export const api = {
   workflow: workflowApi,
   hitl: hitlApi,
   observability: observabilityApi,
   auth: authApi,
   crud: crudApi,
+  secrets: secretApi,
 }
 
 export default api

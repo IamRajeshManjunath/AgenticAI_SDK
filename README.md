@@ -68,6 +68,7 @@ Orchestrator
           ├── POST|GET|DELETE /api/v1/workflow/integrations/*
           ├── GET  /api/v1/observability/*
           ├── GET  /metrics (Prometheus)
+          ├── GET|POST|PATCH|DELETE /api/v1/secrets/*
           └── GET|POST /billing/*   (dormant — returns 503 without STRIPE_SECRET_KEY)
 ```
 
@@ -163,7 +164,8 @@ agenticai_sdk/
 │   │   ├── workflows.py             # Workflow execution, HITL, SaaS CRUD, master agent
 │   │   ├── integrations.py          # Third-party integration management
 │   │   ├── observability.py         # Traces, metrics, evaluations, health
-│   │   └── billing.py               # Billing routes (dormant — all stripe-dependent endpoints return 503)
+│   │   ├── billing.py               # Billing routes (dormant — all stripe-dependent endpoints return 503)
+│   │   └── secrets.py               # Secrets CRUD (Fernet-encrypted at rest)
 │   ├── integration_routes.py        # *** BACKWARD-COMPAT STUB — routes moved to routes/integrations.py ***
 │   └── ...routes.py [DELETED]       # Was monolithic — content split into routes/ package
 ├── master_agent/                     # Upstream natural-language intake (renamed from Master_agent/)
@@ -402,6 +404,7 @@ A Next.js application (`frontend/` — flattened from the former `Frontend/front
 | `/billing` | Usage metrics and billing data |
 | `/rag` | RAG source configuration and document management |
 | `/settings` | Global settings and integration configuration |
+| `/secrets` | Encrypted secret storage management |
 | `/tools` | Tool registry management |
 | `/observability/*` | Trace detail and metrics dashboards |
 | `/templates/*` | Pre-built workflow template gallery |
@@ -763,6 +766,16 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 | `GET` | `/api/v1/workflow/db/config` | `db:read` | View current persisted DB config |
 | `POST` | `/api/v1/workflow/db/reset` | `db:reset` | Reset to default SQLite |
 
+### Secrets Endpoints (prefix `/api/v1/secrets`)
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| `GET` | `/api/v1/secrets` | `secret:read` | List all secrets (names only, no values) |
+| `GET` | `/api/v1/secrets/{id}` | `secret:read-value` | Get a secret with its decrypted value |
+| `POST` | `/api/v1/secrets` | `secret:create` | Create a new secret (encrypted at rest) |
+| `PATCH` | `/api/v1/secrets/{id}` | `secret:update` | Update secret name/value/description |
+| `DELETE` | `/api/v1/secrets/{id}` | `secret:delete` | Delete a secret |
+| `POST` | `/api/v1/secrets/{id}/regenerate` | `secret:update` | Replace value (re-encrypts) |
+
 ### Integration Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -830,7 +843,7 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 
 ## Database Schema
 
-15 SQLAlchemy-backed tables managed in `agenticai_sdk/db/models.py`:
+17 SQLAlchemy-backed tables managed in `agenticai_sdk/db/models.py`:
 
 | Table | Key Fields | Purpose |
 |-------|------------|---------|
@@ -847,6 +860,7 @@ Every agent has a `middleware_config` that is **on by default** but can be custo
 | `activity_logs` | id, workspace_id, event_type, details (JSON), created_at | Audit trail for all mutations |
 | `workflow_traces` | id, workflow_id (FK), trace_id, duration_ms, total_tokens, cost_usd, error_count, span_tree (JSON) | Deep execution traces |
 | `schema_audit_trails` | id, agent_id, direction, payload (JSON), schema_definition (JSON), is_valid | Immutable IO payload audit log |
+| `secrets` | id, workspace_id (FK), name, encrypted_value, description, created_at, updated_at | Encrypted secret storage (Fernet at rest) |
 | `billing_data` | id, workspace_id, amount, currency, period_start, period_end, metrics (JSON) | Per-workspace billing records |
 | `cron_jobs` | id, cron_expression, target_type, target_id, payload (JSON), last_run_at, next_run_at, status, locked_by, locked_until | Scheduled job definitions with lease-based locking |
 | `integration_connections` | id, workspace_id, integration_type, name, auth_state (JSON), rate_limits (JSON), is_active | External service connection store |

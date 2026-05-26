@@ -203,6 +203,22 @@ class IntegrationConnection(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class Secret(Base):
+    """Encrypted secret storage — values are Fernet-encrypted at rest and
+    decrypted on-demand for users with ``secret:read-value`` permission."""
+    __tablename__ = "secrets"
+
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, index=True, nullable=False)
+    encrypted_value = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    workspace = relationship("Workspace", backref="secrets")
+
+
 class Policy(Base):
     """IAM policy document — analogous to an AWS IAM policy.
 
