@@ -946,6 +946,8 @@ function FallbackEditor({ fallbacks, onChange }: FallbackEditorProps) {
                   <SelectItem value="openai">OpenAI</SelectItem>
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="google">Google</SelectItem>
+                  <SelectItem value="azure">Azure</SelectItem>
+                  <SelectItem value="local">Local</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -955,6 +957,38 @@ function FallbackEditor({ fallbacks, onChange }: FallbackEditorProps) {
                 value={fallback.llm_config.model_name}
                 onChange={(e) => handleUpdate(i, { model_name: e.target.value })}
                 className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Temperature: {fallback.llm_config.temperature.toFixed(2)}</Label>
+            <Slider
+              value={[fallback.llm_config.temperature]}
+              onValueChange={([v]) => handleUpdate(i, { temperature: v })}
+              min={0}
+              max={2}
+              step={0.01}
+              className="mt-1"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Max Tokens</Label>
+              <Input
+                type="number"
+                value={fallback.llm_config.max_tokens}
+                onChange={(e) => handleUpdate(i, { max_tokens: parseInt(e.target.value) || 0 })}
+                className="h-8 text-xs"
+                min={1}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">API Key Env Var</Label>
+              <Input
+                value={fallback.llm_config.api_key_env_var}
+                onChange={(e) => handleUpdate(i, { api_key_env_var: e.target.value })}
+                className="h-8 text-xs font-mono"
+                placeholder="OPENAI_API_KEY"
               />
             </div>
           </div>

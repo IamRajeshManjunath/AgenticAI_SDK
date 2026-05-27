@@ -84,6 +84,10 @@ export function WorkflowCanvas({
   const [runDialogOpen, setRunDialogOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [descDraft, setDescDraft] = useState('')
   const { toast } = useToast()
 
   // Convert workflow data to React Flow nodes
@@ -322,11 +326,76 @@ export function WorkflowCanvas({
 
         {/* Top Panel */}
         <Panel position="top-left" className="flex items-center gap-2">
-          <div className="glass-card px-4 py-2 rounded-lg">
-            <h2 className="text-lg font-semibold">{workflow.name}</h2>
-            <p className="text-xs text-muted-foreground">
-              {workflow.agents.length} agents | {workflow.edges.length} edges
-            </p>
+          <div className="glass-card px-4 py-2 rounded-lg min-w-[200px]">
+            {editingName ? (
+              <Input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => {
+                  if (nameDraft.trim() && nameDraft !== workflow.name) {
+                    updateWorkflow(workflowId, { name: nameDraft.trim() })
+                  }
+                  setEditingName(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (nameDraft.trim() && nameDraft !== workflow.name) {
+                      updateWorkflow(workflowId, { name: nameDraft.trim() })
+                    }
+                    setEditingName(false)
+                  }
+                  if (e.key === 'Escape') setEditingName(false)
+                }}
+                className="h-7 text-lg font-semibold px-0 border-0 bg-transparent focus-visible:ring-0"
+              />
+            ) : (
+              <h2
+                className="text-lg font-semibold cursor-text hover:text-primary transition-colors"
+                onDoubleClick={() => {
+                  setNameDraft(workflow.name)
+                  setEditingName(true)
+                }}
+                title="Double-click to rename"
+              >
+                {workflow.name}
+              </h2>
+            )}
+            {editingDescription ? (
+              <Input
+                autoFocus
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+                onBlur={() => {
+                  if (descDraft !== workflow.description) {
+                    updateWorkflow(workflowId, { description: descDraft })
+                  }
+                  setEditingDescription(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (descDraft !== workflow.description) {
+                      updateWorkflow(workflowId, { description: descDraft })
+                    }
+                    setEditingDescription(false)
+                  }
+                  if (e.key === 'Escape') setEditingDescription(false)
+                }}
+                className="h-6 text-xs px-0 border-0 bg-transparent focus-visible:ring-0"
+                placeholder="Add a description..."
+              />
+            ) : (
+              <p
+                className="text-xs text-muted-foreground cursor-text hover:text-foreground transition-colors"
+                onDoubleClick={() => {
+                  setDescDraft(workflow.description || '')
+                  setEditingDescription(true)
+                }}
+                title="Double-click to edit description"
+              >
+                {workflow.description || `${workflow.agents.length} agents | ${workflow.edges.length} edges`}
+              </p>
+            )}
           </div>
         </Panel>
 

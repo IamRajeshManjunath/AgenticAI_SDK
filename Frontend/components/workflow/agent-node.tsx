@@ -3,7 +3,7 @@
 import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { motion } from 'framer-motion'
-import { Bot, Crown, Users, Wrench, Database, AlertTriangle } from 'lucide-react'
+import { Bot, Crown, Users, Wrench, Database, AlertTriangle, Shield, Lock, Layers, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AgentNodeConfig } from '@/lib/types'
 
@@ -114,6 +114,31 @@ export const AgentNode = memo(function AgentNode({
         {hasHITL && (
           <div className="flex items-center gap-1 text-destructive" title="HITL enabled">
             <AlertTriangle className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {data.budget_guardrails && (data.budget_guardrails.max_tokens || data.budget_guardrails.max_cost) && (
+          <div className="flex items-center gap-1 text-warning" title="Budget guardrails set">
+            <Shield className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {data.pii_guardrails?.enabled && (
+          <div className="flex items-center gap-1 text-chart-2" title="PII masking enabled">
+            <Lock className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {data.firewall_guardrails?.prompt_injection_protection && (
+          <div className="flex items-center gap-1 text-destructive" title="Prompt injection firewall enabled">
+            <AlertTriangle className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {data.consensus_config?.enabled && (
+          <div className="flex items-center gap-1 text-primary" title={`Consensus voting (${data.consensus_config.num_instances} instances)`}>
+            <Layers className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {data.fallback_configs && data.fallback_configs.length > 0 && (
+          <div className="flex items-center gap-1 text-chart-4" title={`${data.fallback_configs.length} fallback LLM(s) configured`}>
+            <RefreshCw className="w-3.5 h-3.5" />
           </div>
         )}
       </div>

@@ -287,6 +287,28 @@ function ToolCard({ tool, onUpdate, onDelete }: ToolCardProps) {
             </div>
           </>
         )}
+        {tool.type === 'mcp' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">MCP Endpoint</Label>
+            <Input
+              value={tool.mcp_endpoint || ''}
+              onChange={(e) => onUpdate({ mcp_endpoint: e.target.value })}
+              className="h-8 text-xs"
+              placeholder="http://localhost:8080/mcp"
+            />
+          </div>
+        )}
+        {tool.type === 'function' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Code Snippet</Label>
+            <Textarea
+              value={tool.code_snippet || ''}
+              onChange={(e) => onUpdate({ code_snippet: e.target.value })}
+              className="h-20 text-xs font-mono resize-none"
+              placeholder="def my_tool(input: str) -> str:&#10;    return input.upper()"
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -322,6 +344,7 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
                 <SelectItem value="qdrant">Qdrant</SelectItem>
                 <SelectItem value="chroma">Chroma</SelectItem>
                 <SelectItem value="milvus">Milvus</SelectItem>
+                <SelectItem value="file">File</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -338,6 +361,15 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
 
       <div className="mt-3 space-y-3">
         <div>
+          <Label className="text-xs text-muted-foreground">Name</Label>
+          <Input
+            value={source.name || ''}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            className="h-8 text-xs"
+            placeholder="My Vector Store"
+          />
+        </div>
+        <div>
           <Label className="text-xs text-muted-foreground">URI</Label>
           <Input
             value={source.uri}
@@ -346,6 +378,26 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
             placeholder="https://..."
           />
         </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">API Key Env Var</Label>
+          <Input
+            value={source.api_key_env_var || ''}
+            onChange={(e) => onUpdate({ api_key_env_var: e.target.value })}
+            className="h-8 text-xs font-mono"
+            placeholder="VECTOR_DB_API_KEY"
+          />
+        </div>
+        {source.provider === 'file' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">File Path</Label>
+            <Input
+              value={source.file_path || ''}
+              onChange={(e) => onUpdate({ file_path: e.target.value })}
+              className="h-8 text-xs font-mono"
+              placeholder="/path/to/embeddings.json"
+            />
+          </div>
+        )}
 
         <div>
           <Label className="text-xs text-muted-foreground">Embedding Model</Label>
