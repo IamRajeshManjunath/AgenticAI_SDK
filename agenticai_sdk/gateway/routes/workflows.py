@@ -347,10 +347,11 @@ async def run_workflow_by_id(
 
 
 @router.post("/hitl/approve", response_model=HITLApproveResponse)
-async def hitl_approve(request_body: HITLApproveRequest, request: Request, _: User = Depends(require_permission("approval:approve"))):
+async def hitl_approve(request_body: HITLApproveRequest, request: Request, db: Session = Depends(get_session), _: User = Depends(require_permission("approval:approve"))):
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     log = logger.bind(request_id=request_id, thread_id=request_body.thread_id, approved=request_body.approved)
     log.info("hitl_approval_received")
+    _log_activity(db, "hitl.approved" if request_body.approved else "hitl.rejected", "workflow", request_body.thread_id, request_body.workflow.name if request_body.workflow else request_body.thread_id, details={"thread_id": request_body.thread_id, "approved": request_body.approved})
 
     if not request_body.approved:
         log.info("hitl_rejected_by_reviewer")
@@ -458,7 +459,7 @@ async def delete_workspace(ws_id: str, request: Request, db: Session = Depends(g
 @router.get("/tools", tags=["saas-tools"])
 async def get_tools(request: Request, db: Session = Depends(get_session), _: User = Depends(require_permission("tool:read"))):
     ws_id = _get_workspace_id(request)
-    return [{"id": t.id, "name": t.name, "description": t.description, "type": t.tool_type} for t in db.query(DBTool).filter(DBTool.workspace_id == ws_id).all()]
+    return [{"id": t.id, "name": t.name, "description": t.description, "type": t.tool_type, "content": t.code_or_url or ""} for t in db.query(DBTool).filter(DBTool.workspace_id == ws_id).all()]
 
 
 @router.post("/tools", tags=["saas-tools"])

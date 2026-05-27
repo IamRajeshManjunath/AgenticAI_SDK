@@ -269,11 +269,10 @@ export interface PolicyDocument {
 
 export interface Policy {
   id: string
-  workspace_id: string
   name: string
   description: string | null
+  is_system: boolean
   policy_document: PolicyDocument
-  is_active: boolean
   created_at: string | null
   updated_at: string | null
 }

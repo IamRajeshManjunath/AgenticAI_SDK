@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Activity, Key, Loader2, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Activity, Key, Loader2, CheckCircle2, Info } from 'lucide-react'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { WorkflowCanvas } from '@/components/workflow/workflow-canvas'
 import { AgentConfigSidebar } from '@/components/workflow/agent-config-sidebar'
@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { authApi } from '@/lib/api'
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 export default function WorkflowBuilderPage() {
   const params = useParams()
@@ -159,6 +161,17 @@ export default function WorkflowBuilderPage() {
                   <p className="text-xs text-muted-foreground">
                     Make sure to copy this key now. You won't be able to see it again.
                   </p>
+                  <div className="pt-3 border-t space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Usage examples</p>
+                    <pre className="bg-muted p-2 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+curl -H "X-API-Key: {generatedKey}" \<br/>  {API_BASE_URL}/workflow/workflows/{workflowId}/run</pre>
+                    <pre className="bg-muted p-2 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+curl -H "X-API-Key: {generatedKey}" \<br/>  {API_BASE_URL}/observability/traces?workflow_id={workflowId}</pre>
+                    <p className="text-xs text-muted-foreground flex items-start gap-1">
+                      <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                      API keys cannot be used for admin operations (IAM, members, billing, etc.) — use JWT Bearer auth for those.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <Button onClick={handleGenerateKey} disabled={generating} className="w-full gap-2">

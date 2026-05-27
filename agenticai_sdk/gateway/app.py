@@ -238,3 +238,6 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         )
 
     return app
+
+
+app = create_app()

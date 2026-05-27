@@ -16,6 +16,31 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
 
 
+def _log_activity(
+    db: Session,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    resource_name: str,
+    workspace_id: str = "system",
+    details: dict | None = None,
+):
+    from agenticai_sdk.db.models import ActivityLog
+    entry = ActivityLog(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        event_type=f"policy.{action}",
+        details={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            **(details or {}),
+        },
+    )
+    db.add(entry)
+    db.commit()
+
+
 class PolicyStatement(BaseModel):
     effect: str = Field(pattern="^(Allow|Deny)$")
     actions: list[str] = Field(min_length=1)
@@ -116,6 +141,7 @@ async def create_policy(
     db.add(policy)
     db.commit()
     logger.info("policy_created", id=policy_id, name=body.name)
+    _log_activity(db, "created", "policy", policy_id, body.name)
     return PolicyResponse(
         id=policy.id,
         name=policy.name,
@@ -149,6 +175,7 @@ async def update_policy(
         policy.policy_document = body.policy_document.model_dump()
     db.commit()
     logger.info("policy_updated", id=policy_id, name=policy.name)
+    _log_activity(db, "updated", "policy", policy_id, policy.name)
     return PolicyResponse(
         id=policy.id,
         name=policy.name,
@@ -177,6 +204,7 @@ async def delete_policy(
     db.delete(policy)
     db.commit()
     logger.info("policy_deleted", id=policy_id, name=name)
+    _log_activity(db, "deleted", "policy", policy_id, name)
 
 
 @router.get("/attachments", response_model=list[AttachmentResponse])
@@ -233,6 +261,7 @@ async def attach_policy(
     db.add(attachment)
     db.commit()
     logger.info("policy_attached", policy_id=body.policy_id, principal_type=body.principal_type, principal_id=body.principal_id)
+    _log_activity(db, "attached", "policy", body.policy_id, body.policy_id)
     return AttachmentResponse(
         id=attachment.id,
         policy_id=attachment.policy_id,
@@ -253,3 +282,4 @@ async def detach_policy(
     db.delete(attachment)
     db.commit()
     logger.info("policy_detached", id=attachment_id)
+    _log_activity(db, "detached", "policy", attachment.policy_id, attachment.policy_id)

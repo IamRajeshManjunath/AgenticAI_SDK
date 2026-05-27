@@ -36,7 +36,11 @@ import type { TraceSummary } from '@/lib/types'
 const fetcher = async (): Promise<TraceSummary[]> => {
   const res = await traceApi.list()
   if (res.error) throw new Error(res.error)
-  return res.data ?? []
+  if (Array.isArray(res.data)) return res.data
+  if (res.data && typeof res.data === 'object' && 'traces' in res.data) {
+    return (res.data as { traces: TraceSummary[] }).traces
+  }
+  return []
 }
 
 const statusIcon = (status: string) => {

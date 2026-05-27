@@ -23,8 +23,8 @@ SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 ALGORITHM = "HS256"
 
 PUBLIC_PATHS = {
-    "/auth/register",
-    "/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/login",
     "/health",
     "/docs",
     "/redoc",

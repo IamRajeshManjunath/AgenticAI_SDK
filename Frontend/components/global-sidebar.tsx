@@ -30,11 +30,13 @@ import {
   Cable,
   Shield,
   BarChart3,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
 import { useAuthStore } from '@/lib/auth-store'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +48,17 @@ import {
   Avatar,
   AvatarFallback,
 } from '@/components/ui/avatar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import type { Workspace, WorkflowSchema } from '@/lib/types'
 
 export function GlobalSidebar() {
@@ -54,6 +67,8 @@ export function GlobalSidebar() {
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null)
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [deleteWorkspaceId, setDeleteWorkspaceId] = useState<string | null>(null)
+  const [deleteWorkflowId, setDeleteWorkflowId] = useState<string | null>(null)
 
   const {
     workspaces,
@@ -115,13 +130,14 @@ export function GlobalSidebar() {
             className="fixed left-0 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border z-40 flex flex-col"
           >
             {/* Logo */}
-            <div className="p-4 border-b border-sidebar-border">
+            <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
               <Link href="/" className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center glow-primary-sm">
                   <Sparkles className="w-5 h-5 text-primary" />
                 </div>
                 <span className="text-lg font-semibold text-foreground">AgenticAI</span>
               </Link>
+              <ThemeToggle />
             </div>
 
             {/* Workspace Selector */}
@@ -187,13 +203,12 @@ export function GlobalSidebar() {
                         </span>
                       )}
 
-                      <Trash2
-                        className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0"
-                        onClick={(e: MouseEvent) => {
-                          e.stopPropagation()
-                          deleteWorkspace(workspace.id)
-                        }}
-                      />
+                      <button
+                        className="p-1 rounded hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0"
+                        onClick={(e) => { e.stopPropagation(); setDeleteWorkspaceId(workspace.id) }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
                     </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />
@@ -349,7 +364,7 @@ export function GlobalSidebar() {
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
-                                  onClick={() => deleteWorkflow(workflow.id)}
+                                  onClick={() => setDeleteWorkflowId(workflow.id)}
                                   className="text-destructive"
                                 >
                                   <Trash2 className="w-4 h-4 mr-2" />
@@ -411,6 +426,19 @@ export function GlobalSidebar() {
               >
                 <Activity className="w-4 h-4" />
                 Activity Log
+              </Link>
+
+              <Link
+                href="/team"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  pathname === '/team'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <Users className="w-4 h-4" />
+                Team
               </Link>
 
               <Link
@@ -524,6 +552,42 @@ export function GlobalSidebar() {
           </motion.aside>
         )}
       </AnimatePresence>
+
+      {/* Workspace delete confirmation */}
+      <AlertDialog open={!!deleteWorkspaceId} onOpenChange={(o) => !o && setDeleteWorkspaceId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete this workspace and all its workflows? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteWorkspaceId) deleteWorkspace(deleteWorkspaceId); setDeleteWorkspaceId(null) }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Workflow delete confirmation */}
+      <AlertDialog open={!!deleteWorkflowId} onOpenChange={(o) => !o && setDeleteWorkflowId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workflow</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete this workflow? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteWorkflowId) deleteWorkflow(deleteWorkflowId); setDeleteWorkflowId(null) }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

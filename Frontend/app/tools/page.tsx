@@ -19,6 +19,17 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -35,6 +46,7 @@ interface ToolDTO {
   name: string
   description: string
   type: string
+  content?: string
 }
 
 const fetcher = (url: string) => fetch(url, {
@@ -75,10 +87,15 @@ export default function ToolsPage() {
 
   const handleUpdate = async (id: string, updates: Partial<ToolDTO>) => {
     try {
+      const body: Record<string, unknown> = { ...updates }
+      if ('content' in body) {
+        body.code = body.content
+        delete body.content
+      }
       const res = await fetch(`${API_BASE_URL}/workflow/tools/${id}`, {
         method: 'PATCH',
         headers: authHeaders,
-        body: JSON.stringify(updates),
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error('Failed to update')
       setLocalTools((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)))
@@ -183,6 +200,7 @@ interface ToolCardProps {
 }
 
 function ToolCard({ tool, onUpdate, onDelete }: ToolCardProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const getTypeIcon = () => {
     switch (tool.type) {
       case 'api': return <Globe className="w-5 h-5 text-primary" />
@@ -207,14 +225,29 @@ function ToolCard({ tool, onUpdate, onDelete }: ToolCardProps) {
               />
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDelete}
-            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Tool</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Delete "{tool.name}"? This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => { onDelete(); setConfirmOpen(false) }}>Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -243,6 +276,39 @@ function ToolCard({ tool, onUpdate, onDelete }: ToolCardProps) {
             placeholder="Describe what this tool does..."
           />
         </div>
+        {tool.type === 'api' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Endpoint URL</Label>
+            <Input
+              value={tool.content || ''}
+              onChange={(e) => onUpdate({ content: e.target.value })}
+              className="mt-1 h-8 text-xs"
+              placeholder="https://api.example.com/endpoint"
+            />
+          </div>
+        )}
+        {tool.type === 'mcp' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">MCP Endpoint</Label>
+            <Input
+              value={tool.content || ''}
+              onChange={(e) => onUpdate({ content: e.target.value })}
+              className="mt-1 h-8 text-xs"
+              placeholder="http://localhost:8080/mcp"
+            />
+          </div>
+        )}
+        {tool.type === 'function' && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Code</Label>
+            <Textarea
+              value={tool.content || ''}
+              onChange={(e) => onUpdate({ content: e.target.value })}
+              className="mt-1 h-24 text-xs font-mono resize-none"
+              placeholder="def my_tool(input: str) -> str:&#10;    return input.upper()"
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

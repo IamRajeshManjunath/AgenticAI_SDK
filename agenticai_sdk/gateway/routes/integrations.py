@@ -9,6 +9,8 @@ Endpoints:
 
 from __future__ import annotations
 
+import uuid
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -22,6 +24,31 @@ from agenticai_sdk.schemas.integration import IntegrationConfig, IntegrationType
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/workflow/integrations", tags=["integrations"])
+
+
+def _log_activity(
+    db: Session,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    resource_name: str,
+    workspace_id: str = "system",
+    details: dict | None = None,
+):
+    from agenticai_sdk.db.models import ActivityLog
+    entry = ActivityLog(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        event_type=f"integration.{action}",
+        details={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            **(details or {}),
+        },
+    )
+    db.add(entry)
+    db.commit()
 
 
 def _get_workspace_id(request: Request) -> str:
@@ -44,6 +71,7 @@ async def connect_integration(
         rate_limits=config.rate_limits or {},
     )
     logger.info("integration_connected", type=config.integration_type.value, name=config.name)
+    _log_activity(db, "connected", "integration", config.integration_type.value, config.name, workspace_id=ws_id)
     return {"success": True, "connection": result}
 
 
@@ -93,6 +121,7 @@ async def disconnect_integration(
     conn.is_active = 0
     db.commit()
     logger.info("integration_disconnected", type=integration_type)
+    _log_activity(db, "disconnected", "integration", integration_type, conn.name, workspace_id=ws_id)
     return {"success": True, "message": f"Disconnected {integration_type}"}
 
 

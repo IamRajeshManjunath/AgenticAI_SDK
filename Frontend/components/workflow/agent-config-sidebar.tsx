@@ -43,7 +43,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
-import type { AgentNodeConfig, ReasoningStep, FallbackConfig, LLMConfig } from '@/lib/types'
+import type { AgentNodeConfig, ReasoningStep, FallbackConfig, LLMConfig, RAGSourceConfig } from '@/lib/types'
 
 interface AgentConfigSidebarProps {
   workflowId: string
@@ -56,16 +56,24 @@ export function AgentConfigSidebar({
   agentId,
   onClose,
 }: AgentConfigSidebarProps) {
-  const { workflows, globalTools, globalRAGSources, updateAgent, updateWorkflow } =
+  const { workflows, globalTools, globalRAGSources, updateAgent, updateWorkflow, setSelectedNode, addGlobalRAGSource, updateGlobalRAGSource, deleteGlobalRAGSource } =
     useWorkflowStore()
   const workflow = workflows[workflowId]
   const agent = workflow?.agents.find((a) => a.agent_id === agentId)
 
   const otherAgents = workflow?.agents.filter((a) => a.agent_id !== agentId) || []
+  const [agentIdDraft, setAgentIdDraft] = useState(agent?.agent_id || '')
+
+  useEffect(() => {
+    setAgentIdDraft(agent?.agent_id || '')
+  }, [agent?.agent_id])
 
   const handleUpdate = (updates: Partial<AgentNodeConfig>) => {
     if (!agentId) return
     updateAgent(workflowId, agentId, updates)
+    if (updates.agent_id && updates.agent_id !== agentId) {
+      setSelectedNode(updates.agent_id)
+    }
   }
 
   const handleSetEntryPoint = () => {
@@ -136,8 +144,15 @@ export function AgentConfigSidebar({
                 <Label htmlFor="agent_id">Agent ID</Label>
                 <Input
                   id="agent_id"
-                  value={agent.agent_id}
-                  onChange={(e) => handleUpdate({ agent_id: e.target.value })}
+                  value={agentIdDraft}
+                  onChange={(e) => setAgentIdDraft(e.target.value)}
+                  onBlur={() => {
+                    if (agentIdDraft.trim()) {
+                      handleUpdate({ agent_id: agentIdDraft.trim() })
+                    } else {
+                      setAgentIdDraft(agent?.agent_id || '')
+                    }
+                  }}
                   className="mt-1.5"
                 />
               </div>
@@ -437,35 +452,149 @@ export function AgentConfigSidebar({
                 </div>
               </div>
               <div>
-                <Label>RAG Sources</Label>
-                <div className="flex flex-wrap gap-2 mt-1.5">
-                  {globalRAGSources.map((source) => (
-                    <Badge
-                      key={source.id}
-                      variant={
-                        agent.rag_sources?.includes(source.id) ? 'default' : 'outline'
-                      }
-                      className={cn(
-                        'cursor-pointer transition-colors',
-                        agent.rag_sources?.includes(source.id)
-                          ? 'bg-chart-2 hover:bg-chart-2/80'
-                          : 'hover:bg-secondary'
-                      )}
-                      onClick={() => {
-                        const currentSources = agent.rag_sources || []
-                        const newSources = currentSources.includes(source.id)
-                          ? currentSources.filter((id) => id !== source.id)
-                          : [...currentSources, source.id]
-                        handleUpdate({ rag_sources: newSources })
-                      }}
-                    >
-                      <Database className="w-3 h-3 mr-1" />
-                      {source.provider}
-                    </Badge>
-                  ))}
+                <div className="flex items-center justify-between mb-2">
+                  <Label>RAG Sources</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const id = addGlobalRAGSource({
+                        provider: 'pinecone',
+                        uri: '',
+                        api_key_env_var: '',
+                        embedding_model: 'text-embedding-3-small',
+                        top_k: 5,
+                        similarity_threshold: 0.7,
+                        hybrid_search: false,
+                      })
+                      handleUpdate({ rag_sources: [...(agent.rag_sources || []), id] })
+                    }}
+                    className="h-7 text-xs gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {globalRAGSources.map((source) => {
+                    const enabled = agent.rag_sources?.includes(source.id)
+                    return (
+                      <div key={source.id} className="glass-card p-3 rounded-lg space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Switch
+                              checked={enabled}
+                              onCheckedChange={(checked) => {
+                                const currentSources = agent.rag_sources || []
+                                handleUpdate({
+                                  rag_sources: checked
+                                    ? [...currentSources, source.id]
+                                    : currentSources.filter((id) => id !== source.id),
+                                })
+                              }}
+                            />
+                            <Select
+                              value={source.provider}
+                              onValueChange={(value) =>
+                                updateGlobalRAGSource(source.id, { provider: value as RAGSourceConfig['provider'] })
+                              }
+                            >
+                              <SelectTrigger className="h-6 text-xs border-0 bg-transparent p-0 focus:ring-0 font-medium">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pinecone">Pinecone</SelectItem>
+                                <SelectItem value="weaviate">Weaviate</SelectItem>
+                                <SelectItem value="qdrant">Qdrant</SelectItem>
+                                <SelectItem value="chroma">Chroma</SelectItem>
+                                <SelectItem value="milvus">Milvus</SelectItem>
+                                <SelectItem value="file">File</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteGlobalRAGSource(source.id)}
+                            className="h-6 w-6 p-0 text-destructive hover:text-destructive shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+
+                        {enabled && (
+                          <div className="space-y-2 pl-7 border-l-2 border-chart-2/30 ml-[7px]">
+                            <Input
+                              value={source.name || ''}
+                              onChange={(e) => updateGlobalRAGSource(source.id, { name: e.target.value })}
+                              className="h-7 text-xs"
+                              placeholder="Source name"
+                            />
+                            <Input
+                              value={source.uri || ''}
+                              onChange={(e) => updateGlobalRAGSource(source.id, { uri: e.target.value })}
+                              className="h-7 text-xs"
+                              placeholder="URI / connection string"
+                            />
+                            <Input
+                              value={source.api_key_env_var || ''}
+                              onChange={(e) => updateGlobalRAGSource(source.id, { api_key_env_var: e.target.value })}
+                              className="h-7 text-xs font-mono"
+                              placeholder="API Key Env Var"
+                            />
+                            {source.provider === 'file' && (
+                              <Input
+                                value={source.file_path || ''}
+                                onChange={(e) => updateGlobalRAGSource(source.id, { file_path: e.target.value })}
+                                className="h-7 text-xs font-mono"
+                                placeholder="File path"
+                              />
+                            )}
+                            <Input
+                              value={source.embedding_model}
+                              onChange={(e) => updateGlobalRAGSource(source.id, { embedding_model: e.target.value })}
+                              className="h-7 text-xs"
+                              placeholder="Embedding model"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <Label className="text-[10px] text-muted-foreground">Top-K: {source.top_k}</Label>
+                                <Slider
+                                  value={[source.top_k]}
+                                  onValueChange={([v]) => updateGlobalRAGSource(source.id, { top_k: v })}
+                                  min={1}
+                                  max={20}
+                                  step={1}
+                                  className="mt-1"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-[10px] text-muted-foreground">Threshold: {source.similarity_threshold.toFixed(2)}</Label>
+                                <Slider
+                                  value={[source.similarity_threshold * 100]}
+                                  onValueChange={([v]) => updateGlobalRAGSource(source.id, { similarity_threshold: v / 100 })}
+                                  min={10}
+                                  max={100}
+                                  step={5}
+                                  className="mt-1"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs text-muted-foreground">Hybrid Search</Label>
+                              <Switch
+                                checked={source.hybrid_search}
+                                onCheckedChange={(checked) => updateGlobalRAGSource(source.id, { hybrid_search: checked })}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {globalRAGSources.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No RAG sources available. Add sources in the Global Registry.
+                    <p className="text-xs text-muted-foreground text-center py-4">
+                      No RAG sources yet. Click <strong>Add</strong> to create one.
                     </p>
                   )}
                 </div>

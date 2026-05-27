@@ -4,6 +4,17 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -47,6 +58,8 @@ export function RegistryDrawer() {
   const [activeTab, setActiveTab] = useState('tools')
   const [editingTool, setEditingTool] = useState<ToolConfig | null>(null)
   const [editingRAG, setEditingRAG] = useState<RAGSourceConfig | null>(null)
+  const [confirmDeleteToolId, setConfirmDeleteToolId] = useState<string | null>(null)
+  const [confirmDeleteRagId, setConfirmDeleteRagId] = useState<string | null>(null)
 
   const handleAddTool = () => {
     const newTool: Omit<ToolConfig, 'id'> = {
@@ -56,6 +69,8 @@ export function RegistryDrawer() {
       api_endpoint: '',
       method: 'GET',
       api_key_env_var: '',
+      mcp_endpoint: '',
+      code_snippet: '',
     }
     addGlobalTool(newTool)
   }
@@ -63,12 +78,14 @@ export function RegistryDrawer() {
   const handleAddRAGSource = () => {
     const newSource: Omit<RAGSourceConfig, 'id'> = {
       provider: 'pinecone',
+      name: '',
       uri: '',
       api_key_env_var: '',
       embedding_model: 'text-embedding-3-small',
       top_k: 5,
       similarity_threshold: 0.7,
       hybrid_search: false,
+      file_path: '',
     }
     addGlobalRAGSource(newSource)
   }
@@ -138,7 +155,7 @@ export function RegistryDrawer() {
                           key={tool.id}
                           tool={tool}
                           onUpdate={(updates) => updateGlobalTool(tool.id, updates)}
-                          onDelete={() => deleteGlobalTool(tool.id)}
+                          onDelete={() => setConfirmDeleteToolId(tool.id)}
                         />
                       ))
                     )}
@@ -157,7 +174,7 @@ export function RegistryDrawer() {
                           key={source.id}
                           source={source}
                           onUpdate={(updates) => updateGlobalRAGSource(source.id, updates)}
-                          onDelete={() => deleteGlobalRAGSource(source.id)}
+                          onDelete={() => setConfirmDeleteRagId(source.id)}
                         />
                       ))
                     )}
@@ -168,6 +185,38 @@ export function RegistryDrawer() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Tool delete confirmation */}
+      <AlertDialog open={!!confirmDeleteToolId} onOpenChange={(o) => !o && setConfirmDeleteToolId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Tool</AlertDialogTitle>
+            <AlertDialogDescription>Delete this global tool? This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (confirmDeleteToolId) deleteGlobalTool(confirmDeleteToolId); setConfirmDeleteToolId(null) }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* RAG source delete confirmation */}
+      <AlertDialog open={!!confirmDeleteRagId} onOpenChange={(o) => !o && setConfirmDeleteRagId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete RAG Source</AlertDialogTitle>
+            <AlertDialogDescription>Delete this RAG source? This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (confirmDeleteRagId) deleteGlobalRAGSource(confirmDeleteRagId); setConfirmDeleteRagId(null) }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -52,13 +52,13 @@ async def list_traces(request: Request, limit: int = 20) -> TraceListResponse:
         traces.append({
             "trace_id": report.trace_id,
             "workflow_id": report.workflow_id,
-            "thread_id": report.thread_id,
-            "total_duration_ms": report.total_duration_ms,
+            "workflow_name": report.workflow_id,
+            "status": "failed" if report.error_count > 0 else "completed",
+            "total_cost": report.total_cost_usd,
             "total_tokens": report.total_tokens,
-            "total_cost_usd": report.total_cost_usd,
-            "error_count": report.error_count,
-            "span_count": report.span_count,
-            "created_at": report.created_at,
+            "latency_ms": report.total_duration_ms,
+            "started_at": report.created_at,
+            "completed_at": report.created_at,
         })
     return TraceListResponse(traces=traces, total=len(traces))
 

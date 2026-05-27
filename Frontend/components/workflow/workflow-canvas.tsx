@@ -26,6 +26,7 @@ import {
   Layers,
   Save,
   AlertCircle,
+  Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
@@ -44,6 +45,23 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { AgentNodeConfig, EdgeCondition } from '@/lib/types'
 
 const nodeTypes = {
@@ -89,6 +107,200 @@ export function WorkflowCanvas({
   const [nameDraft, setNameDraft] = useState('')
   const [descDraft, setDescDraft] = useState('')
   const { toast } = useToast()
+
+  const [condFields, setCondFields] = useState<string[]>([''])
+  const [condOperators, setCondOperators] = useState<string[]>(['=='])
+  const [condValues, setCondValues] = useState<string[]>([''])
+  const [condCustomFields, setCondCustomFields] = useState<boolean[]>([false])
+  const [condLogics, setCondLogics] = useState<string[]>([])
+
+  const FIELD_LABELS: Record<string, string> = {
+    'last_message.content': 'last message content',
+    'last_message.role': 'sender role',
+    'input': 'user input',
+    'result': 'agent result',
+    'output': 'agent output',
+    'status': 'execution status',
+  }
+
+  const OPERATOR_LABELS: Record<string, string> = {
+    '==': 'equals',
+    '!=': 'not equals',
+    '>': 'greater than',
+    '<': 'less than',
+    '>=': 'greater than or equal',
+    '<=': 'less than or equal',
+    'in': 'contains',
+    'not in': 'does not contain',
+  }
+
+  const REVERSE_FIELD_LOOKUP: Record<string, string> = Object.fromEntries(
+    Object.entries(FIELD_LABELS).map(([k, v]) => [v, k])
+  )
+
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId) return null
+    return workflow.edges.find((e) => e.id === selectedEdgeId)
+  }, [selectedEdgeId, workflow.edges])
+
+  useEffect(() => {
+    const raw = selectedEdge?.condition || ''
+    if (!raw) {
+      setCondFields([''])
+      setCondOperators(['=='])
+      setCondValues([''])
+      setCondCustomFields([false])
+      setCondLogics([])
+      return
+    }
+    const parts = raw.split(/\s+(and|or)\s+/)
+
+    const logics: string[] = []
+    const fields: string[] = []
+    const ops: string[] = []
+    const vals: string[] = []
+    const customs: boolean[] = []
+
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        logics.push(parts[i])
+        continue
+      }
+      const match = parts[i].match(/state\["(.*?)"\]\s*(==|!=|>|<|>=|<=|in|not in)\s*"(.*)"/)
+      if (match) {
+        const f = match[1]
+        fields.push(FIELD_LABELS[f] || f)
+        customs.push(!FIELD_LABELS[f])
+        ops.push(match[2])
+        vals.push(match[3])
+      } else {
+        fields.push(parts[i])
+        customs.push(true)
+        ops.push('==')
+        vals.push('')
+      }
+    }
+    setCondFields(fields.length ? fields : [''])
+    setCondOperators(ops.length ? ops : ['=='])
+    setCondValues(vals.length ? vals : [''])
+    setCondCustomFields(customs.length ? customs : [false])
+    setCondLogics(logics)
+  }, [selectedEdge?.condition])
+
+  const compileSingleCondition = (field: string, operator: string, value: string): string => {
+    const storedField = REVERSE_FIELD_LOOKUP[field] || field
+    if (!storedField && !value) return ''
+    if (!storedField) return value
+    return `state["${storedField}"] ${operator} "${value}"`
+  }
+
+  const compileCondition = (logics?: string[]): string => {
+    const parts = condFields.map((f, i) => compileSingleCondition(f, condOperators[i], condValues[i]))
+      .filter(Boolean)
+    if (parts.length === 0) return ''
+    const joinLogics = logics || condLogics
+    return parts.reduce((acc, part, i) => {
+      if (i === 0) return part
+      return `${acc} ${joinLogics[i - 1] || 'and'} ${part}`
+    }, '')
+  }
+
+  const updateEdgeCondition = (fields: string[], ops: string[], vals: string[], logics?: string[]) => {
+    const parts = fields.map((f, i) => compileSingleCondition(f, ops[i], vals[i])).filter(Boolean)
+    if (parts.length === 0) {
+      updateEdge(workflowId, selectedEdgeId!, { condition: '' })
+      return
+    }
+    const joinLogics = logics || condLogics
+    const condition = parts.reduce((acc, part, i) => {
+      if (i === 0) return part
+      return `${acc} ${joinLogics[i - 1] || 'and'} ${part}`
+    }, '')
+    updateEdge(workflowId, selectedEdgeId!, { condition })
+  }
+
+  const updateField = (index: number, value: string) => {
+    const next = [...condFields]; next[index] = value; setCondFields(next)
+    updateEdgeCondition(next, condOperators, condValues)
+  }
+
+  const updateOperator = (index: number, value: string) => {
+    const next = [...condOperators]; next[index] = value; setCondOperators(next)
+    updateEdgeCondition(condFields, next, condValues)
+  }
+
+  const updateValue = (index: number, value: string) => {
+    const next = [...condValues]; next[index] = value; setCondValues(next)
+    updateEdgeCondition(condFields, condOperators, next)
+  }
+
+  const updateCustomField = (index: number, custom: boolean) => {
+    const next = [...condCustomFields]; next[index] = custom; setCondCustomFields(next)
+  }
+
+  const addCondition = () => {
+    const newFields = [...condFields, '']
+    const newOps = [...condOperators, '==']
+    const newVals = [...condValues, '']
+    setCondFields(newFields)
+    setCondOperators(newOps)
+    setCondValues(newVals)
+    setCondCustomFields([...condCustomFields, false])
+    const newLogics = [...condLogics, 'and']
+    setCondLogics(newLogics)
+    updateEdgeCondition(newFields, newOps, newVals, newLogics)
+  }
+
+  const removeCondition = (index: number) => {
+    const f = condFields.filter((_, i) => i !== index)
+    const o = condOperators.filter((_, i) => i !== index)
+    const v = condValues.filter((_, i) => i !== index)
+    setCondCustomFields(condCustomFields.filter((_, i) => i !== index))
+    setCondFields(f)
+    setCondOperators(o)
+    setCondValues(v)
+    const l = condLogics.length > 0
+      ? condLogics.filter((_, li) => li !== Math.min(index, condLogics.length - 1))
+      : []
+    setCondLogics(l)
+    if (f.length === 0) {
+      setCondFields([''])
+      setCondOperators(['=='])
+      setCondValues([''])
+      setCondCustomFields([false])
+      setCondLogics([])
+    }
+    updateEdgeCondition(
+      f.length ? f : [''],
+      o.length ? o : ['=='],
+      v.length ? v : [''],
+      l.length ? l : undefined
+    )
+  }
+
+  const toggleLogicAt = (index: number) => {
+    const next = [...condLogics]
+    next[index] = condLogics[index] === 'and' ? 'or' : 'and'
+    setCondLogics(next)
+    updateEdgeCondition(condFields, condOperators, condValues, next)
+  }
+
+  const singlePreview = (field: string, op: string, value: string): string => {
+    const opLabel = OPERATOR_LABELS[op] || op
+    if (!field && !value) return ''
+    if (!field) return value
+    return `the ${field} ${opLabel} "${value}"`
+  }
+
+  const formatPreview = (): string => {
+    const parts = condFields.map((f, i) => singlePreview(f, condOperators[i], condValues[i])).filter(Boolean)
+    if (parts.length === 0) return 'Unconditional transition'
+    return `Follow this path when ${parts.reduce((acc, part, i) => {
+      if (i === 0) return part
+      const logic = condLogics[i - 1] || 'and'
+      return `${acc} ${logic} ${part}`
+    }, '')}`
+  }
 
   // Convert workflow data to React Flow nodes
   const initialNodes: Node[] = useMemo(() => {
@@ -178,24 +390,42 @@ export function WorkflowCanvas({
   }, [onNodeSelect, onEdgeSelect])
 
   // Handle node deletion
+  const [confirmDeleteNodes, setConfirmDeleteNodes] = useState<Node[] | null>(null)
+
   const onNodesDelete = useCallback(
     (nodesToDelete: Node[]) => {
-      nodesToDelete.forEach((node) => {
-        deleteAgent(workflowId, node.id)
-      })
+      if (nodesToDelete.length === 0) return
+      setConfirmDeleteNodes(nodesToDelete)
     },
-    [workflowId, deleteAgent]
+    []
   )
 
+  const executeNodeDelete = useCallback(() => {
+    if (!confirmDeleteNodes) return
+    confirmDeleteNodes.forEach((node) => {
+      deleteAgent(workflowId, node.id)
+    })
+    setConfirmDeleteNodes(null)
+  }, [confirmDeleteNodes, workflowId, deleteAgent])
+
   // Handle edge deletion
+  const [confirmDeleteEdges, setConfirmDeleteEdges] = useState<Edge[] | null>(null)
+
   const onEdgesDelete = useCallback(
     (edgesToDelete: Edge[]) => {
-      edgesToDelete.forEach((edge) => {
-        deleteEdge(workflowId, edge.id)
-      })
+      if (edgesToDelete.length === 0) return
+      setConfirmDeleteEdges(edgesToDelete)
     },
-    [workflowId, deleteEdge]
+    []
   )
+
+  const executeEdgeDelete = useCallback(() => {
+    if (!confirmDeleteEdges) return
+    confirmDeleteEdges.forEach((edge) => {
+      deleteEdge(workflowId, edge.id)
+    })
+    setConfirmDeleteEdges(null)
+  }, [confirmDeleteEdges, workflowId, deleteEdge])
 
   // Add new agent
   const handleAddAgent = useCallback(() => {
@@ -287,11 +517,6 @@ export function WorkflowCanvas({
       setIsRunning(false)
     }
   }, [workflowId, runInput, toast])
-
-  const selectedEdge = useMemo(() => {
-    if (!selectedEdgeId) return null
-    return workflow.edges.find((e) => e.id === selectedEdgeId)
-  }, [selectedEdgeId, workflow.edges])
 
   return (
     <div className="w-full h-full relative">
@@ -543,22 +768,113 @@ export function WorkflowCanvas({
           <DialogHeader>
             <DialogTitle>Edit Edge Condition</DialogTitle>
             <DialogDescription>
-              Define Python logic for this transition.
+              When should this path be taken? Define the condition as a sentence.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Condition (Python Expression)</label>
-              <Textarea
-                value={selectedEdge?.condition || ''}
-                onChange={(e) => {
-                  updateEdge(workflowId, selectedEdgeId!, { condition: e.target.value })
-                }}
-                placeholder='state["last_message"].content.lower() == "yes"'
-                className="font-mono text-sm h-32"
-              />
+          <div className="space-y-3 py-4">
+            {condFields.map((field, i) => (
+              <div key={i} className="space-y-2">
+                {i > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleLogicAt(i - 1)}
+                      className={`text-xs font-semibold uppercase px-2 py-0.5 rounded ${
+                        condLogics[i - 1] === 'and'
+                          ? 'bg-primary/20 text-primary'
+                          : 'bg-chart-2/20 text-chart-2'
+                      }`}
+                    >
+                      {condLogics[i - 1] || 'and'}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-foreground shrink-0">When the</span>
+                  {condCustomFields[i] ? (
+                    <Input
+                      value={field}
+                      onChange={(e) => updateField(i, e.target.value)}
+                      placeholder="custom field name"
+                      className="w-44 h-8 text-sm"
+                    />
+                  ) : (
+                    <Select
+                      value={field || '__select'}
+                      onValueChange={(v) => {
+                        if (v === '__custom__') {
+                          updateCustomField(i, true)
+                          updateField(i, '')
+                        } else {
+                          updateCustomField(i, false)
+                          updateField(i, v)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-44 h-8 text-sm">
+                        <SelectValue placeholder="choose a field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__select__" disabled>choose a field</SelectItem>
+                        {Object.entries(FIELD_LABELS).map(([key, label]) => (
+                          <SelectItem key={key} value={label}>{label}</SelectItem>
+                        ))}
+                        <SelectItem value="__custom__">(custom field)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select
+                    value={condOperators[i]}
+                    onValueChange={(v) => updateOperator(i, v)}
+                  >
+                    <SelectTrigger className="w-40 h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(OPERATOR_LABELS).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={condValues[i]}
+                    onChange={(e) => updateValue(i, e.target.value)}
+                    placeholder={
+                      ['in', 'not in'].includes(condOperators[i])
+                        ? 'keyword'
+                        : ['>', '<', '>=', '<='].includes(condOperators[i])
+                        ? '0.5'
+                        : 'yes'
+                    }
+                    className="w-28 h-8 text-sm"
+                  />
+                  {condFields.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeCondition(i)}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                      title="Remove condition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addCondition}
+              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add condition
+            </button>
+            <div className="space-y-1 pt-1">
+              <p className="text-sm text-muted-foreground">
+                {formatPreview()}
+              </p>
               <p className="text-xs text-muted-foreground">
-                Leave empty for unconditional transition.
+                Leave all fields empty for unconditional transition.
               </p>
             </div>
           </div>
@@ -567,6 +883,38 @@ export function WorkflowCanvas({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Node delete confirmation */}
+      <AlertDialog open={!!confirmDeleteNodes} onOpenChange={(o) => !o && setConfirmDeleteNodes(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Agent{confirmDeleteNodes && confirmDeleteNodes.length > 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete {confirmDeleteNodes?.length} agent{confirmDeleteNodes && confirmDeleteNodes.length > 1 ? 's' : ''} and all connected edges? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeNodeDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edge delete confirmation */}
+      <AlertDialog open={!!confirmDeleteEdges} onOpenChange={(o) => !o && setConfirmDeleteEdges(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Edge{confirmDeleteEdges && confirmDeleteEdges.length > 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete {confirmDeleteEdges?.length} edge{confirmDeleteEdges && confirmDeleteEdges.length > 1 ? 's' : ''}? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeEdgeDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

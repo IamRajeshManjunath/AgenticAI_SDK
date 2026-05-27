@@ -32,7 +32,32 @@ from agenticai_sdk.auth.schemas import (
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+
+def _log_activity(
+    db: Session,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    resource_name: str,
+    workspace_id: str = "system",
+    details: dict | None = None,
+):
+    from agenticai_sdk.db.models import ActivityLog
+    entry = ActivityLog(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        event_type=f"auth.{action}",
+        details={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            **(details or {}),
+        },
+    )
+    db.add(entry)
+    db.commit()
+
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -184,6 +209,7 @@ async def create_api_key(
     )
     db.add(api_key)
     db.commit()
+    _log_activity(db, "apikey.created", "apikey", api_key.id, body.name, workspace_id=workspace_id)
 
     return ApiKeyCreateResponse(
         id=api_key.id,
@@ -213,17 +239,23 @@ async def list_api_keys(
 @router.post("/api-keys/workflow/{workflow_id}", response_model=ApiKeyCreateResponse)
 async def create_workflow_api_key(
     workflow_id: str,
+    request: Request,
     current_user: User = Depends(require_permission("apikey:create")),
     db: Session = Depends(get_session),
 ):
     """Generate or regenerate a workflow-scoped API key (wfk_)."""
-    workspace_id = current_user.default_workspace_id
-    if not workspace_id:
-        raise HTTPException(status_code=400, detail="No default workspace")
-
-    wf = db.query(Workflow).filter(Workflow.id == workflow_id, Workflow.workspace_id == workspace_id).first()
+    wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+
+    member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == wf.workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="Access denied to this workflow")
+
+    workspace_id = wf.workspace_id
 
     existing = db.query(ApiKey).filter(
         ApiKey.workflow_id == workflow_id,
@@ -245,6 +277,7 @@ async def create_workflow_api_key(
     )
     db.add(api_key)
     db.commit()
+    _log_activity(db, "apikey.workflow_created", "apikey", api_key.id, api_key.name, workspace_id=workspace_id, details={"workflow_id": workflow_id})
 
     return ApiKeyCreateResponse(
         id=api_key.id,
@@ -265,6 +298,7 @@ async def delete_api_key(
         raise HTTPException(status_code=404, detail="API key not found")
     db.delete(key)
     db.commit()
+    _log_activity(db, "apikey.deleted", "apikey", key_id, key.name, workspace_id=key.workspace_id)
 
 
 # ── Workspace Members ─────────────────────────────────────────────────────
@@ -322,7 +356,7 @@ async def invite_member(
     )
     db.add(membership)
     db.commit()
-
+    _log_activity(db, "member.invited", "member", invited.id, body.email, workspace_id=workspace_id)
     return {"success": True}
 
 
@@ -346,6 +380,7 @@ async def update_member_role(
         raise HTTPException(status_code=404, detail="Member not found")
     membership.role = body.role
     db.commit()
+    _log_activity(db, "member.role_changed", "member", user_id, user_id, workspace_id=workspace_id, details={"new_role": body.role})
     return {"success": True}
 
 
@@ -379,3 +414,4 @@ async def remove_member(
             raise HTTPException(status_code=400, detail="Cannot remove the last admin")
     db.delete(membership)
     db.commit()
+    _log_activity(db, "member.removed", "member", user_id, user_id, workspace_id=workspace_id)

@@ -117,7 +117,7 @@ interface WorkflowStore {
   addGlobalTool: (tool: Omit<ToolConfig, 'id'>) => void
   updateGlobalTool: (id: string, updates: Partial<ToolConfig>) => void
   deleteGlobalTool: (id: string) => void
-  addGlobalRAGSource: (source: Omit<RAGSourceConfig, 'id'>) => void
+  addGlobalRAGSource: (source: Omit<RAGSourceConfig, 'id'>) => string
   updateGlobalRAGSource: (id: string, updates: Partial<RAGSourceConfig>) => void
   deleteGlobalRAGSource: (id: string) => void
   
@@ -198,8 +198,24 @@ export const useWorkflowStore = create<WorkflowStore>()(
 
       // Workflow Actions
       createWorkflow: (name, workspaceId) => {
+        const store = get()
+        const wsId = workspaceId || store.activeWorkspaceId
+        let targetWorkspaceId = wsId
+
+        if (!wsId || !store.workspaces.find(w => w.id === wsId)) {
+          const firstWs = store.workspaces[0]
+          if (firstWs) {
+            targetWorkspaceId = firstWs.id
+          } else {
+            const newWsId = crypto.randomUUID()
+            const now = new Date().toISOString()
+            const newWs: Workspace = { id: newWsId, name: 'Default Workspace', workflows: [], created_at: now }
+            set({ workspaces: [...store.workspaces, newWs], activeWorkspaceId: newWsId })
+            targetWorkspaceId = newWsId
+          }
+        }
+
         const workflow = createDefaultWorkflow(name)
-        const targetWorkspaceId = workspaceId || get().activeWorkspaceId
         
         set((state) => ({
           workflows: { ...state.workflows, [workflow.id]: workflow },
@@ -414,9 +430,11 @@ export const useWorkflowStore = create<WorkflowStore>()(
       },
 
       addGlobalRAGSource: (source) => {
+        const id = generateId()
         set((state) => ({
-          globalRAGSources: [...state.globalRAGSources, { ...source, id: generateId() }],
+          globalRAGSources: [...state.globalRAGSources, { ...source, id }],
         }))
+        return id
       },
 
       updateGlobalRAGSource: (id, updates) => {
