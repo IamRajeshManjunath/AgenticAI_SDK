@@ -169,6 +169,56 @@ class Permission(str, Enum):
     SETTINGS_READ = "settings:read"
     SETTINGS_UPDATE = "settings:update"
 
+    # Integrations (Plugin Management)
+    INTEGRATION_PLUGIN_INSTALL = "integration:plugin:install"
+    INTEGRATION_PLUGIN_UNINSTALL = "integration:plugin:uninstall"
+    INTEGRATION_PLUGIN_CONFIGURE = "integration:plugin:configure"
+    INTEGRATION_REGISTRY_READ = "integration:registry:read"
+    
+    # Configuration Management
+    CONFIG_READ = "config:read"
+    CONFIG_UPDATE = "config:update"
+    CONFIG_VALIDATE = "config:validate"
+    
+    # Database Routing (User-Provided Stores)
+    DATABASE_ROUTE_CREATE = "database:route:create"
+    DATABASE_ROUTE_READ = "database:route:read"
+    DATABASE_ROUTE_UPDATE = "database:route:update"
+    DATABASE_ROUTE_DELETE = "database:route:delete"
+    
+    # Plugin Operations
+    PLUGIN_HEALTH_CHECK = "plugin:health:check"
+    PLUGIN_VERSION_READ = "plugin:version:read"
+    
+    # Sandboxes
+    SANDBOX_CREATE = "sandbox:create"
+    SANDBOX_READ = "sandbox:read"
+    SANDBOX_UPDATE = "sandbox:update"
+    SANDBOX_DELETE = "sandbox:delete"
+    SANDBOX_EXECUTE = "sandbox:execute"
+    
+    # Skills
+    SKILL_CREATE = "skill:create"
+    SKILL_READ = "skill:read"
+    SKILL_UPDATE = "skill:update"
+    SKILL_DELETE = "skill:delete"
+    SKILL_EXECUTE = "skill:execute"
+    
+    # Middleware
+    MIDDLEWARE_CREATE = "middleware:create"
+    MIDDLEWARE_READ = "middleware:read"
+    MIDDLEWARE_UPDATE = "middleware:update"
+    MIDDLEWARE_DELETE = "middleware:delete"
+    
+    # Backends
+    BACKEND_CREATE = "backend:create"
+    BACKEND_READ = "backend:read"
+    BACKEND_UPDATE = "backend:update"
+    BACKEND_DELETE = "backend:delete"
+    
+    # RAG Pipeline
+    RAG_QUERY = "rag:query"
+    
     # Admin (superuser-only)
     ADMIN_SUPERUSER = "admin:superuser"
     ADMIN_IMPERSONATE = "admin:impersonate"
@@ -200,6 +250,10 @@ EDITOR_POLICY_DOCUMENT: dict[str, Any] = {
             "approval:approve", "approval:reject",
             "invite:*",
             "admin:*",
+            "integration:plugin:*",
+            "config:update",
+            "database:route:*",
+            "skill:create", "skill:update", "skill:delete", "skill:execute",
         ], "resources": ["*"]},
     ],
 }
@@ -210,11 +264,11 @@ VIEWER_POLICY_DOCUMENT: dict[str, Any] = {
         {"effect": "Allow", "actions": [
             "workflow:read", "workflow:run",
             "tool:read",
-            "rag:read",
+            "rag:read", "rag:query",
             "member:list", "member:read",
             "workspace:read",
             "apikey:read",
-            "integration:read",
+            "integration:read", "integration:registry:read",
             "cron:read",
             "observability:read",
             "execution:read",
@@ -225,6 +279,14 @@ VIEWER_POLICY_DOCUMENT: dict[str, Any] = {
             "tag:read",
             "settings:read",
             "secret:read",
+            "config:read",
+            "database:route:read",
+            "plugin:health:check",
+            "plugin:version:read",
+            "sandbox:read",
+            "skill:read",
+            "middleware:read",
+            "backend:read",
         ], "resources": ["*"]},
     ],
 }

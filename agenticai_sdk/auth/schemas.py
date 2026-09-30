@@ -39,6 +39,8 @@ class ChangePasswordRequest(BaseModel):
 
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
+    scopes: list[str] = Field(default_factory=list, description="Integration scopes (e.g., 'integration:openai', 'tool:tavily', 'vector:qdrant')")
+    workflow_id: Optional[str] = Field(default=None, description="Optional workflow-scoped API key")
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -46,6 +48,8 @@ class ApiKeyCreateResponse(BaseModel):
     name: str
     key: str
     key_prefix: str
+    scopes: list[str] = Field(default_factory=list)
+    workflow_id: Optional[str] = None
 
 
 class ApiKeyResponse(BaseModel):
@@ -55,6 +59,8 @@ class ApiKeyResponse(BaseModel):
     is_active: bool
     last_used_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    scopes: list[str] = Field(default_factory=list)
+    workflow_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

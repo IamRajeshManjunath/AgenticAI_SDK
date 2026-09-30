@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Float, Boolean
+from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Float, Boolean, Enum, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
+from agenticai_sdk.config.schemas import DatabasePurpose
 
 
 class Plan(Base):
@@ -248,4 +249,109 @@ class PolicyAttachment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     policy = relationship("Policy", backref="attachments")
+
+
+class DatabaseRoute(Base):
+    """User-configured database connections for external stores with strict purpose-bound schema."""
+    __tablename__ = "database_routes"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Route identification
+    name = Column(String, nullable=False)
+    purpose = Column(Enum(DatabasePurpose), nullable=False, index=True)
+    provider = Column(String, nullable=False)
+    
+    # Connection config (non-sensitive)
+    config = Column(JSON, nullable=False)
+    
+    # SCHEMA CONTRACT - VALIDATED AT CREATION, ENFORCED AT RUNTIME
+    schema_contract = Column(JSON, nullable=False)
+    schema_version = Column(String, default="1.0")
+    schema_hash = Column(String, nullable=False)
+    
+    # Sensitive config (encrypted)
+    config_encrypted = Column(JSON, nullable=True)
+    
+    # Health & enforcement
+    is_active = Column(Integer, default=1)
+    last_schema_validation = Column(DateTime(timezone=True), nullable=True)
+    schema_validation_status = Column(String, default="pending")
+    last_health_check = Column(DateTime(timezone=True), nullable=True)
+    health_status = Column(String, default="unknown")
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # CONSTRAINT: One route per purpose per workspace
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'purpose', name='uq_workspace_purpose'),
+    )
+    
+    workspace = relationship("Workspace", backref="database_routes")
+
+
+class IntegrationCredential(Base):
+    """Encrypted credentials for integration providers."""
+    __tablename__ = "integration_credentials"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    integration_type = Column(String, nullable=False)
+    provider = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    
+    # Encrypted credential payload
+    credential_type = Column(String, nullable=False)
+    encrypted_payload = Column(String, nullable=False)
+    
+    # Metadata
+    is_active = Column(Integer, default=1)
+    last_validated = Column(DateTime(timezone=True), nullable=True)
+    validation_status = Column(String, default="pending")
+    created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    workspace = relationship("Workspace", backref="integration_credentials")
+
+
+class GovernanceEvent(Base):
+    """Immutable audit trail for compliance."""
+    __tablename__ = "governance_events"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, index=True, nullable=True)
+    
+    event_category = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+    severity = Column(String, default="info")
+    
+    resource_type = Column(String, nullable=True)
+    resource_id = Column(String, nullable=True)
+    
+    details = Column(JSON, nullable=True)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class CompliancePolicy(Base):
+    """Data retention, access control, encryption policies."""
+    __tablename__ = "compliance_policies"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    
+    policy_type = Column(String, nullable=False)
+    config = Column(JSON, nullable=False)
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    workspace = relationship("Workspace", backref="compliance_policies")
 

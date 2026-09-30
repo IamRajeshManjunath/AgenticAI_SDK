@@ -112,7 +112,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
             "configurations into async, resilient, stateful multi-agent DAGs using "
             "LangGraph and DeepAgent cognitive loops."
         ),
-        version="0.2.0",
+        version="0.3.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -157,7 +157,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         return {
             "status": "healthy",
             "service": "agenticai-sdk",
-            "version": "0.2.0",
+            "version": "0.3.0",
             "database": db,
         }
 
@@ -170,7 +170,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     async def root() -> dict:
         return {
             "service": "AgenticAI SDK Gateway",
-            "version": "0.2.0",
+            "version": "0.3.0",
             "docs": "/docs",
             "health": "/health",
             "endpoints": {

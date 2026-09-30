@@ -8,11 +8,37 @@ from pydantic import BaseModel, Field
 
 
 class LLMProvider(str, Enum):
-    """Supported LLM inference providers."""
-
+    """Supported LLM inference providers (legacy - for backward compat).
+    
+    For new integrations, use ChatModelConfig with plugin registry.
+    """
+    
+    # Legacy providers (built-in)
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
+    
+    # Extended providers (available via plugin registry)
+    AZURE_OPENAI = "azure_openai"
+    GOOGLE_GENAI = "google_genai"
+    GOOGLE_VERTEX = "google_vertex"
+    AWS_BEDROCK = "aws_bedrock"
+    GROQ = "groq"
+    MISTRAL = "mistral"
+    COHERE = "cohere"
+    XAI = "xai"
+    DEEPSEEK = "deepseek"
+    NVIDIA = "nvidia"
+    TOGETHER = "together"
+    FIREWORKS = "fireworks"
+    DATABRICKS = "databricks"
+    WATSONX = "watsonx"
+    PERPLEXITY = "perplexity"
+    CEREBRAS = "cerebras"
+    HUGGINGFACE = "huggingface"
+    LITELLM = "litellm"
+    OPENROUTER = "openrouter"
+    AZURE_AI = "azure_ai"
 
 
 class LLMConfig(BaseModel):
@@ -29,7 +55,7 @@ class LLMConfig(BaseModel):
 
     provider: LLMProvider = Field(
         ...,
-        description="The LLM inference provider (openai, anthropic, ollama).",
+        description="The LLM inference provider.",
     )
     model_name: str = Field(
         ...,

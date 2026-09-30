@@ -16,7 +16,13 @@ from .models import (
     IntegrationConnection,
     Policy,
     PolicyAttachment,
+    DatabaseRoute,
+    IntegrationCredential,
+    GovernanceEvent,
+    CompliancePolicy,
 )
+from .factory import DynamicDatabaseFactory, ConfigurationError
+from .persistence import CheckpointerFactory, StoreFactory, PersistenceManager
 
 __all__ = [
     "engine",
@@ -39,4 +45,13 @@ __all__ = [
     "IntegrationConnection",
     "Policy",
     "PolicyAttachment",
+    "DatabaseRoute",
+    "IntegrationCredential",
+    "GovernanceEvent",
+    "CompliancePolicy",
+    "DynamicDatabaseFactory",
+    "ConfigurationError",
+    "CheckpointerFactory",
+    "StoreFactory",
+    "PersistenceManager",
 ]

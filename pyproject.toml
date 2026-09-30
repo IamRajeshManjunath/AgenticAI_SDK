@@ -1,43 +1,70 @@
 [project]
 name = "agenticai-sdk"
-version = "0.2.0"
+version = "0.3.0"
 description = "Production-grade JSON-to-Workflow Engine SDK — compile declarative JSON into async, resilient, multi-agent DAGs powered by LangGraph and DeepAgent."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # Core
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
+    "pyyaml>=6.0,<7.0",
+    "python-dotenv>=1.0,<2.0",
+    
+    # LangChain Core (only what's needed for base functionality)
     "langchain>=0.3,<1.0",
     "langchain-core>=0.3,<1.0",
     "langchain-openai>=0.3,<1.0",
     "langchain-anthropic>=0.3,<1.0",
-    "langchain-community>=0.3,<1.0",
+    "langchain-text-splitters>=0.3,<1.0",
     "langgraph>=0.4,<1.0",
     "langgraph-checkpoint>=2.0,<3.0",
+    "langgraph-checkpoint-postgres>=2.0,<3.0",
+    "langgraph-checkpoint-sqlite>=2.0,<3.0",
+    
+    # Web Framework
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.30,<1.0",
     "httpx[http2]>=0.27,<1.0",
+    "starlette>=0.38,<1.0",
+    
+    # Observability
     "structlog>=24.0,<26.0",
-    "tenacity>=9.0,<10.0",
-    "qdrant-client>=1.9,<3.0",
-    "pinecone-client>=4.0,<7.0",
-    "chromadb>=0.5,<1.0",
-    "faiss-cpu>=1.8,<2.0",
-    "tiktoken>=0.7,<1.0",
-    "sqlalchemy>=2.0,<3.0",
-    "boto3>=1.34,<2.0",
     "prometheus-client>=0.20,<1.0",
     "opentelemetry-api>=1.24,<2.0",
     "opentelemetry-sdk>=1.24,<2.0",
     "opentelemetry-instrumentation-fastapi>=0.45b0,<1.0",
-    "croniter>=2.0,<3.0",
+    "opentelemetry-exporter-otlp>=1.24,<2.0",
+    
+    # Database (core)
+    "sqlalchemy>=2.0,<3.0",
+    "psycopg2-binary>=2.9,<3.0",
     "redis>=5.0,<6.0",
     "aioredis>=2.0,<3.0",
+    
+    # Vector Stores (core)
+    "qdrant-client>=1.9,<3.0",
+    "pinecone-client>=4.0,<7.0",
+    "faiss-cpu>=1.8,<2.0",
+    
+    # Utilities
+    "tenacity>=9.0,<10.0",
+    "croniter>=2.0,<3.0",
     "cryptography>=42.0,<44.0",
-    "pymongo>=4.6,<5.0",
     "bcrypt>=3.0,<4.1",
     "passlib[bcrypt]>=1.7,<2.0",
     "pyjwt>=2.0,<3.0",
+    "tiktoken>=0.7,<1.0",
+    "click>=8.1,<9.0",
+    "rich>=13.0,<14.0",
+    "watchdog>=3.0,<4.0",
+    
+    # MCP
+    "mcp>=1.0,<2.0",
+    "langchain-mcp-adapters>=0.1,<1.0",
+    
+    # Deep Agents Skills
+    "deepagents>=0.7,<1.0",
 ]
 
 [project.optional-dependencies]
@@ -46,9 +73,79 @@ dev = [
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
     "ruff>=0.4",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.12",
+    "faker>=24.0",
 ]
 postgres = [
     "psycopg2-binary>=2.9,<3.0",
+    "asyncpg>=0.29,<1.0",
+]
+clickhouse = [
+    "clickhouse-connect>=0.6,<1.0",
+]
+mongodb = [
+    "motor>=3.3,<4.0",
+    "pymongo>=4.6,<5.0",
+]
+redis = [
+    "redis>=5.0,<6.0",
+    "aioredis>=2.0,<3.0",
+    "valkey>=2.0,<3.0",
+]
+skills = [
+    "boto3>=1.34",
+    "gitpython>=3.1",
+    "langsmith>=0.3",
+]
+all-integrations = [
+    # Chat models
+    "langchain-google-genai>=0.3,<1.0",
+    "langchain-google-vertexai>=0.3,<1.0",
+    "langchain-aws>=0.3,<1.0",
+    "langchain-groq>=0.3,<1.0",
+    "langchain-mistralai>=0.3,<1.0",
+    "langchain-cohere>=0.3,<1.0",
+    "langchain-xai>=0.3,<1.0",
+    "langchain-deepseek>=0.3,<1.0",
+    "langchain-nvidia-ai-endpoints>=0.3,<1.0",
+    "langchain-together>=0.3,<1.0",
+    "langchain-fireworks>=0.3,<1.0",
+    "langchain-databricks>=0.3,<1.0",
+    "langchain-ibm>=0.3,<1.0",
+    "langchain-perplexity>=0.3,<1.0",
+    "langchain-cerebras>=0.3,<1.0",
+    "langchain-huggingface>=0.3,<1.0",
+    "langchain-litellm>=0.3,<1.0",
+    "langchain-openrouter>=0.3,<1.0",
+    "langchain-ollama>=0.3,<1.0",
+    "langchain-azure-ai>=0.3,<1.0",
+    
+    # Tools
+    "langchain-tavily>=0.3,<1.0",
+    "langchain-composio>=0.3,<1.0",
+    "langchain-exa>=0.3,<1.0",
+    "langchain-google-community>=0.3,<1.0",
+    
+    # Vector stores
+    "langchain-qdrant>=0.3,<1.0",
+    "langchain-pinecone>=0.3,<1.0",
+    "langchain-chroma>=0.3,<1.0",
+    "langchain-weaviate>=0.3,<1.0",
+    "langchain-milvus>=0.3,<1.0",
+    "langchain-elasticsearch>=0.3,<1.0",
+    "langchain-postgres>=0.3,<1.0",
+    "langchain-astradb>=0.3,<1.0",
+    "langchain-redis>=0.3,<1.0",
+    "langchain-mongodb>=0.3,<1.0",
+    
+    # Embeddings
+    "langchain-nomic>=0.3,<1.0",
+    "langchain-voyageai>=0.3,<1.0",
+    
+    # Checkpointers/Stores
+    "langgraph-checkpoint-mongodb>=2.0,<3.0",
+    "langgraph-checkpoint-aws>=2.0,<3.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -71,3 +168,56 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+# Entry points for plugin discovery
+[project.entry-points."agenticai.plugins"]
+# Chat models
+openai = "agenticai_sdk.integrations.plugins.openai:OpenAIPluginMetadata"
+azure_openai = "agenticai_sdk.integrations.plugins.openai:AzureOpenAIPluginMetadata"
+anthropic = "agenticai_sdk.integrations.plugins.anthropic:AnthropicPluginMetadata"
+vertex_anthropic = "agenticai_sdk.integrations.plugins.anthropic:VertexAIAnthropicPluginMetadata"
+google_genai = "agenticai_sdk.integrations.plugins.google:GoogleGenAIPluginMetadata"
+google_vertex = "agenticai_sdk.integrations.plugins.google:GoogleVertexAIPluginMetadata"
+google_embeddings = "agenticai_sdk.integrations.plugins.google:GoogleEmbeddingsPluginMetadata"
+bedrock = "agenticai_sdk.integrations.plugins.aws:BedrockPluginMetadata"
+bedrock_embeddings = "agenticai_sdk.integrations.plugins.aws:BedrockEmbeddingsPluginMetadata"
+groq = "agenticai_sdk.integrations.plugins.groq:GroqPluginMetadata"
+ollama = "agenticai_sdk.integrations.plugins.ollama:OllamaPluginMetadata"
+mistral = "agenticai_sdk.integrations.plugins.mistral:MistralPluginMetadata"
+cohere = "agenticai_sdk.integrations.plugins.cohere:CoherePluginMetadata"
+cohere_embeddings = "agenticai_sdk.integrations.plugins.cohere:CohereEmbeddingsPluginMetadata"
+xai = "agenticai_sdk.integrations.plugins.xai:XAIPluginMetadata"
+deepseek = "agenticai_sdk.integrations.plugins.deepseek:DeepSeekPluginMetadata"
+nvidia = "agenticai_sdk.integrations.plugins.nvidia:NVIDIAPluginMetadata"
+nvidia_embeddings = "agenticai_sdk.integrations.plugins.nvidia:NVIDIAEmbeddingsPluginMetadata"
+together = "agenticai_sdk.integrations.plugins.together:TogetherPluginMetadata"
+together_embeddings = "agenticai_sdk.integrations.plugins.together:TogetherEmbeddingsPluginMetadata"
+fireworks = "agenticai_sdk.integrations.plugins.fireworks:FireworksPluginMetadata"
+databricks = "agenticai_sdk.integrations.plugins.databricks:DatabricksPluginMetadata"
+databricks_embeddings = "agenticai_sdk.integrations.plugins.databricks:DatabricksEmbeddingsPluginMetadata"
+watsonx = "agenticai_sdk.integrations.plugins.ibm:WatsonXPluginMetadata"
+watsonx_embeddings = "agenticai_sdk.integrations.plugins.ibm:WatsonXEmbeddingsPluginMetadata"
+perplexity = "agenticai_sdk.integrations.plugins.perplexity:PerplexityPluginMetadata"
+cerebras = "agenticai_sdk.integrations.plugins.cerebras:CerebrasPluginMetadata"
+huggingface = "agenticai_sdk.integrations.plugins.huggingface:HuggingFacePluginMetadata"
+huggingface_embeddings = "agenticai_sdk.integrations.plugins.huggingface:HuggingFaceEmbeddingsPluginMetadata"
+litellm = "agenticai_sdk.integrations.plugins.litellm:LiteLLMPluginMetadata"
+openrouter = "agenticai_sdk.integrations.plugins.openrouter:OpenRouterPluginMetadata"
+azure_ai = "agenticai_sdk.integrations.plugins.azure:AzureAIPluginMetadata"
+
+# Tools
+tavily = "agenticai_sdk.integrations.plugins.tavily:TavilyPluginMetadata"
+composio = "agenticai_sdk.integrations.plugins.composio:ComposioPluginMetadata"
+exa = "agenticai_sdk.integrations.plugins.exa:ExaPluginMetadata"
+google_search = "agenticai_sdk.integrations.plugins.google_search:GoogleSearchPluginMetadata"
+
+# Sandboxes
+e2b = "agenticai_sdk.integrations.plugins.e2b:E2BPluginMetadata"
+modal = "agenticai_sdk.integrations.plugins.modal:ModalPluginMetadata"
+agentcore = "agenticai_sdk.integrations.plugins.agentcore:AgentCorePluginMetadata"
+daytona = "agenticai_sdk.integrations.plugins.daytona:DaytonaPluginMetadata"
+
+# Vector stores
+qdrant = "agenticai_sdk.integrations.plugins.qdrant:QdrantPluginMetadata"
+qdrant_checkpointer = "agenticai_sdk.integrations.plugins.qdrant:QdrantCheckpointerPluginMetadata"
+pinecone = "agenticai_sdk.integrations.plugins.pinecone:PineconePluginMetadata"

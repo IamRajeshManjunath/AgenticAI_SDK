@@ -40,7 +40,7 @@ from agenticai_sdk.runtime.orchestrator import Orchestrator
 from agenticai_sdk.schemas.workflow import WorkflowSchema
 from agenticai_sdk.state.workflow_state import WorkflowState
 
-from Master_agent.agent import StructuredMasterAgent
+from master_agent.agent import StructuredMasterAgent
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

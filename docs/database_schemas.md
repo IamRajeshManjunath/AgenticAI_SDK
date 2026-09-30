@@ -24,6 +24,9 @@
    - [cron_jobs](#cron_jobs)
    - [integration_connections](#integration_connections)
    - [billing_data](#billing_data)
+   - [skills](#skills)
+   - [skill_files](#skill_files)
+   - [skill_versions](#skill_versions)
 2. [Redis (Rate Limiter)](#2-redis-rate-limiter)
 3. [Prometheus (In-Process Metrics)](#3-prometheus-in-process-metrics)
 4. [File-Based DB Config Persistence](#4-file-based-db-config-persistence)
@@ -42,7 +45,7 @@
 3. `AGENTICAI_DB_URL` environment variable
 4. SQLite fallback (`sqlite:///agenticai.db`)
 
-**Total tables**: 17
+**Total tables**: 20
 
 ---
 
@@ -420,6 +423,68 @@ Per-workspace billing records. Written by Stripe webhook handlers when Stripe is
 
 ---
 
+### `skills`
+
+Registered skill metadata for the Deep Agents Skills system. Each skill is a file-based capability with a SKILL.md file.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `VARCHAR` | **PK**, index | UUID v4 |
+| `workspace_id` | `VARCHAR` | FK → `workspaces.id`, ON DELETE CASCADE, NOT NULL | Workspace scope |
+| `name` | `VARCHAR` | index, NOT NULL | Skill name (lowercase, hyphens) |
+| `description` | `TEXT` | nullable | Human-readable description |
+| `source` | `VARCHAR` | NOT NULL | `local`, `git`, `s3`, `fleet` |
+| `path` | `VARCHAR` | NOT NULL | Path to skill directory |
+| `frontmatter` | `JSON` | NOT NULL | Parsed YAML frontmatter from SKILL.md |
+| `content` | `TEXT` | nullable | Full markdown content |
+| `source_url` | `VARCHAR` | nullable | Remote source URL (git repo, S3 bucket) |
+| `source_branch` | `VARCHAR` | nullable | Git branch for remote sources |
+| `source_path` | `VARCHAR` | nullable | Path within remote source |
+| `is_active` | `INTEGER` | default `1` | Soft-delete / deactivate |
+| `created_at` | `TIMESTAMPTZ` | server_default `now()` | |
+| `updated_at` | `TIMESTAMPTZ` | onupdate `now()` | |
+
+**Relationships**:
+- `workspace` → `workspaces` (many-to-one)
+- `files` → `skill_files` (one-to-many)
+- `versions` → `skill_versions` (one-to-many)
+
+---
+
+### `skill_files`
+
+Supporting files for skills (scripts, references, assets, templates).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `VARCHAR` | **PK**, index | UUID v4 |
+| `skill_id` | `VARCHAR` | FK → `skills.id`, ON DELETE CASCADE, NOT NULL | Parent skill |
+| `path` | `VARCHAR` | NOT NULL | Relative path from skill root |
+| `content` | `TEXT` | NOT NULL | File content |
+| `type` | `VARCHAR` | NOT NULL | `script`, `reference`, `asset`, `template` |
+| `size_bytes` | `INTEGER` | default `0` | File size in bytes |
+| `created_at` | `TIMESTAMPTZ` | server_default `now()` | |
+| `updated_at` | `TIMESTAMPTZ` | onupdate `now()` | |
+
+---
+
+### `skill_versions`
+
+Version history for skills to support rollback and audit.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `VARCHAR` | **PK**, index | UUID v4 |
+| `skill_id` | `VARCHAR` | FK → `skills.id`, ON DELETE CASCADE, NOT NULL | Parent skill |
+| `version` | `VARCHAR` | NOT NULL | Semantic version (e.g., "1.0.0") |
+| `frontmatter` | `JSON` | NOT NULL | Frontmatter at this version |
+| `content` | `TEXT` | nullable | Content at this version |
+| `files` | `JSON` | nullable | Supporting files at this version |
+| `created_by` | `VARCHAR` | FK → `users.id`, ON DELETE SET NULL | User who created version |
+| `created_at` | `TIMESTAMPTZ` | server_default `now()` | |
+
+---
+
 ## 2. Redis (Rate Limiter)
 
 **Purpose**: Distributed sliding-window rate limiting across multiple API instances  
@@ -528,7 +593,9 @@ workspaces ──┬── workflows ──┬── workflow_traces
              ├── billing_data
              ├── integration_connections
              ├── secrets
-             └── plans
+             ├── plans
+             └── skills ──┬── skill_files
+                          └── skill_versions
 
 cron_jobs ──→ workflows (target)
 
@@ -543,7 +610,7 @@ From `docker-compose.yml`:
 
 | Service | Image | Port | Data Volume | Purpose |
 |---------|-------|------|-------------|---------|
-| `postgres` | postgres:16-alpine | 5432 | `pgdata` | Primary database (17 tables) |
+| `postgres` | postgres:16-alpine | 5432 | `pgdata` | Primary database (20 tables) |
 | `redis` | redis:7-alpine | 6379 | `redisdata` | Rate limiter backend |
 | `prometheus` | prom/prometheus:latest | 9090 | `promdata` | Metrics scraping (15d retention) |
 | `grafana` | grafana/grafana:latest | 3000 | `grafanadata` | Metrics dashboards |

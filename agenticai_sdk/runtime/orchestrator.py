@@ -5,10 +5,10 @@ Reads a validated WorkflowSchema and compiles it into a runnable
 LangGraph StateGraph application:
 
   1. Resolves all LLM clients, tools, and RAG retrievers
-  2. Uses DeepAgentFactory.create_deep_agent for each agent node
+  2. Uses DeepAgentsIntegration to create Deep Agents for each agent node
   3. Constructs a StateGraph with WorkflowState
   4. Registers conditional edge routing from EdgeConfig expressions
-  5. Attaches InMemorySaver checkpointer for HITL state persistence
+  5. Attaches checkpointer for HITL state persistence
   6. Returns a fully compiled, executable graph application
 
 Additionally integrates:
@@ -30,7 +30,7 @@ import structlog
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from agenticai_sdk.deep_agent.factory import DeepAgentFactory
+from agenticai_sdk.skills import DeepAgentsIntegration, DeepAgentIntegrationError
 from agenticai_sdk.evaluation.metrics import MetricsRegistry
 from agenticai_sdk.evaluation.trace_collector import TraceCollector
 from agenticai_sdk.exceptions import (
@@ -137,7 +137,7 @@ class Orchestrator:
         self._llm_factory = LLMClientFactory()
         self._tool_registry = ToolRegistry()
         self._vector_db_factory = VectorDBClientFactory()
-        self._deep_agent_factory = DeepAgentFactory()
+        self._deep_agents_integration = DeepAgentsIntegration(config=None)  # Config will be set per workflow
         self._checkpointer = MemorySaver()
         self._fallback_router = FallbackRouter()
         self._consensus_broker = ConsensusBroker()
@@ -324,7 +324,7 @@ class Orchestrator:
         # Capture references for closure
         fallback_router = self._fallback_router
         consensus_broker = self._consensus_broker
-        deep_agent_factory = self._deep_agent_factory
+        deep_agents_integration = self._deep_agents_integration
         trace_collector = self._trace_collector
         metrics_registry = self._metrics
         workflow_id = schema.workflow_id
@@ -338,8 +338,14 @@ class Orchestrator:
         # Check if fallback routing is enabled
         use_fallback = bool(agent_config.fallback_llms)
 
-        # Create the inner deep-agent callable
-        inner_runner = deep_agent_factory.create_deep_agent(
+        # Create the inner deep-agent callable using DeepAgentsIntegration
+        # We create a temporary DeepAgentsIntegration with the workflow config
+        from agenticai_sdk.config.schemas import AgenticAIConfig
+        temp_config = AgenticAIConfig()  # Minimal config for integration
+        deep_agents_integration = DeepAgentsIntegration(temp_config)
+
+        # Create the inner deep-agent callable using DeepAgentsIntegration
+        inner_runner = deep_agents_integration.create_deep_agent(
             config=agent_config,
             resolved_llm=resolved_llm,
             resolved_tools=resolved_tools,
@@ -457,7 +463,7 @@ class Orchestrator:
                     consensus_result = await consensus_broker.execute_consensus(
                         agent_config=local_config,
                         state=state,
-                        runner_factory=deep_agent_factory,
+                        runner_factory=deep_agents_integration,  # Pass integration as factory
                         resolved_llm=resolved_llm,
                         resolved_tools=resolved_tools,
                         retrieved_docs=effective_docs,
@@ -473,14 +479,14 @@ class Orchestrator:
                     result = await fallback_router.execute_with_fallback(
                         agent_config=local_config,
                         state=state,
-                        runner_factory=deep_agent_factory,
+                        runner_factory=deep_agents_integration,  # Pass integration as factory
                         primary_llm=resolved_llm,
                         resolved_tools=resolved_tools,
                         retrieved_docs=effective_docs,
                     )
                 else:
-                    # Standard execution
-                    current_runner = deep_agent_factory.create_deep_agent(
+                    # Standard execution using DeepAgentsIntegration
+                    current_runner = deep_agents_integration.create_deep_agent(
                         config=local_config,
                         resolved_llm=resolved_llm,
                         resolved_tools=resolved_tools,

@@ -5,4 +5,4 @@ Compile declarative JSON configurations into async, resilient, multi-agent
 DAGs powered by LangGraph orchestration and DeepAgent cognitive loops.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
