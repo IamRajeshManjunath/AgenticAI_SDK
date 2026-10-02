@@ -1,54 +1,77 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
-import { useAuthStore } from './auth-store'
+import { useEffect, useState, ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuthStore } from '@/lib/auth-store'
 
-const PUBLIC_PATHS = ['/login', '/register', '/landing', '/blog', '/templates']
-
-const PUBLIC_PREFIXES = ['/blog/', '/templates/']
-
-function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_PATHS.includes(pathname)) return true
-  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
-}
-
-interface AuthProviderProps {
-  children: ReactNode
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
-  const { token, user, isLoading } = useAuthStore()
-  const pathname = usePathname()
+export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
-
-  const isPublic = isPublicPath(pathname)
+  const { token, refreshToken, loadSession, logout } = useAuthStore()
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
-    if (isLoading) return
-    if (!isPublic && !token) {
-      router.push('/login')
+    // Load session on mount
+    const init = async () => {
+      // Check if we have a refresh token but no access token
+      const authStore = useAuthStore.getState()
+      if (authStore.refreshToken && !authStore.token) {
+        try {
+          await authStore.refreshAccessToken()
+        } catch {
+          // Refresh failed, user will need to login
+        }
+      }
+      setInitialized(true)
     }
-    if (isPublic && token && user) {
-      router.push('/')
+    init()
+  }, [])
+
+  // Handle 401 responses globally
+  useEffect(() => {
+    const originalFetch = window.fetch
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch(input, init)
+      
+      if (response.status === 401) {
+        const authStore = useAuthStore.getState()
+        if (authStore.refreshToken) {
+          try {
+            await authStore.refreshAccessToken()
+            // Retry the original request
+            const authStore2 = useAuthStore.getState()
+            const newInit = {
+              ...init,
+              headers: {
+                ...init?.headers,
+                'Authorization': `Bearer ${useAuthStore.getState().token}`,
+              },
+            }
+            return window.fetch(input, newInit)
+          } catch {
+            // Refresh failed, logout
+            useAuthStore.getState().logout()
+            window.location.href = '/login'
+          }
+        } else {
+          // No refresh token, redirect to login
+          useAuthStore.getState().logout()
+          window.location.href = '/login'
+        }
+      }
+      return response
     }
-  }, [token, user, isLoading, isPublic, pathname, router])
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-      </div>
-    )
-  }
+    return () => {
+      window.fetch = originalFetch
+    }
+  }, [])
 
-  if (!isPublic && !token) {
+  if (!initialized) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
       </div>
     )
   }
 
   return <>{children}</>
-}

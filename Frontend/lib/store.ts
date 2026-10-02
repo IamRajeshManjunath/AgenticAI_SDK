@@ -241,7 +241,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               updated_at: new Date().toISOString(),
             },
           },
-        }))
+        })
       },
 
       deleteWorkflow: (id) => {
@@ -477,7 +477,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
                 messages: [...currentState.messages, message],
               },
             },
-          }
+          })
         })
       },
 

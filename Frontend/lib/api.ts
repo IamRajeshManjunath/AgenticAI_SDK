@@ -53,12 +53,22 @@ interface ConfigSchemaResponse {
   required: string[]
 }
 
+// Token refresh state
+let isRefreshing = false
+let refreshPromise: Promise<string | null> | null = null
+
 function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().token
-  const workspaceId = useAuthStore.getState().workspaceId
+  const state = useAuthStore.getState()
+  const token = state.token
+  const apiKey = state.apiKey
+  const workspaceId = state.workspaceId
   const headers: Record<string, string> = {}
+  
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
+  }
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey
   }
   if (workspaceId) {
     headers['X-Workspace-ID'] = workspaceId
@@ -66,9 +76,47 @@ function getAuthHeaders(): Record<string, string> {
   return headers
 }
 
+async function refreshToken(): Promise<string | null> {
+  if (isRefreshing) {
+    return refreshPromise!
+  }
+  
+  isRefreshing = true
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = useAuthStore.getState().refreshToken
+      if (!refreshToken) return null
+      
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken })
+      })
+      
+      if (!response.ok) {
+        useAuthStore.getState().logout()
+        return null
+      }
+      
+      const data = await response.json()
+      useAuthStore.getState().setTokens(data.access_token, data.refresh_token)
+      return data.access_token
+    } catch {
+      useAuthStore.getState().logout()
+      return null
+    } finally {
+      isRefreshing = false
+      refreshPromise = null
+    }
+  })()
+  
+  return refreshPromise
+}
+
 async function fetchApi<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  retryCount = 0
 ): Promise<ApiResponse<T>> {
   try {
     const authHeaders = getAuthHeaders()
@@ -80,6 +128,14 @@ async function fetchApi<T>(
         ...options?.headers,
       },
     })
+
+    // Handle 401 - try to refresh token and retry once
+    if (response.status === 401 && retryCount === 0) {
+      const newToken = await refreshToken()
+      if (newToken) {
+        return fetchApi(endpoint, options, 1)
+      }
+    }
 
     if (!response.ok) {
       const error = await response.text()
@@ -112,6 +168,16 @@ export const workflowApi = {
     })
   },
 
+  async runById(
+    workflowId: string,
+    inputMessage: string
+  ): Promise<ApiResponse<WorkflowRunResponse>> {
+    return fetchApi<WorkflowRunResponse>(`/workflow/run/${workflowId}`, {
+      method: 'POST',
+      body: JSON.stringify({ input_message: inputMessage }),
+    })
+  },
+
   streamExecution(
     workflow: WorkflowSchema,
     inputMessage: string,
@@ -122,8 +188,10 @@ export const workflowApi = {
     onError: (error: string) => void
   ): () => void {
     const token = useAuthStore.getState().token
+    const apiKey = useAuthStore.getState().apiKey
+    const authParam = token ? `&token=${token}` : (apiKey ? `&api_key=${apiKey}` : '')
     const eventSource = new EventSource(
-      `${API_BASE_URL}/workflow/run/stream?workflow_id=${workflow.id}${token ? `&token=${token}` : ''}`
+      `${API_BASE_URL}/workflow/run/stream?workflow_id=${workflow.id}${authParam}`
     )
 
     eventSource.onmessage = (event) => {
@@ -154,6 +222,10 @@ export const hitlApi = {
       body: JSON.stringify(request),
     })
   },
+
+  async getPendingApprovals(workflowId: string): Promise<ApiResponse<HITLRequest[]>> {
+    return fetchApi<HITLRequest[]>(`/workflow/hitl/pending?workflow_id=${workflowId}`)
+  },
 }
 
 // Observability API
@@ -172,8 +244,10 @@ export const observabilityApi = {
     onError: (error: string) => void
   ): () => void {
     const token = useAuthStore.getState().token
+    const apiKey = useAuthStore.getState().apiKey
+    const authParam = token ? `&token=${token}` : (apiKey ? `&api_key=${apiKey}` : '')
     const eventSource = new EventSource(
-      `${API_BASE_URL}/observability/metrics/stream?workflow_id=${workflowId}${token ? `&token=${token}` : ''}`
+      `${API_BASE_URL}/observability/metrics/stream?workflow_id=${workflowId}${authParam}`
     )
 
     eventSource.onmessage = (event) => {
@@ -204,8 +278,29 @@ export const observabilityApi = {
 
 // Auth API
 export const authApi = {
+  async login(credentials: { email: string; password: string }): Promise<ApiResponse<{ access_token: string; refresh_token: string; token_type: string; user: { id: string; email: string; full_name: string; is_active: boolean; default_workspace_id: string | null } }>> {
+    return fetchApi('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+    })
+  },
+
+  async register(data: { email: string; password: string; full_name?: string; workspace_name?: string }): Promise<ApiResponse<{ access_token: string; refresh_token: string; token_type: string; user: { id: string; email: string; full_name: string; is_active: boolean; default_workspace_id: string | null } }>> {
+    return fetchApi('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
   async getProfile(): Promise<ApiResponse<{ id: string; email: string; full_name: string; is_active: boolean; default_workspace_id: string | null }>> {
     return fetchApi('/auth/me')
+  },
+
+  async refreshToken(refreshToken: string): Promise<ApiResponse<{ access_token: string; refresh_token: string }>> {
+    return fetchApi('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
   },
 
   async listApiKeys(): Promise<ApiResponse<Array<{ id: string; name: string; key_prefix: string; is_active: boolean; last_used_at: string | null; created_at: string | null }>>> {
@@ -226,6 +321,13 @@ export const authApi = {
   async createWorkflowApiKey(workflowId: string): Promise<ApiResponse<{ id: string; name: string; key: string; key_prefix: string }>> {
     return fetchApi<{ id: string; name: string; key: string; key_prefix: string }>(`/auth/api-keys/workflow/${workflowId}`, {
       method: 'POST',
+    })
+  },
+
+  async changePassword(data: { current_password: string; new_password: string }): Promise<ApiResponse<void>> {
+    return fetchApi('/auth/me/password', {
+      method: 'PUT',
+      body: JSON.stringify(data),
     })
   },
 }
@@ -507,8 +609,10 @@ export const configApi = {
     onError: (error: string) => void
   ): () => void {
     const token = useAuthStore.getState().token
+    const apiKey = useAuthStore.getState().apiKey
+    const authParam = token ? `?token=${token}` : (apiKey ? `?api_key=${apiKey}` : '')
     const eventSource = new EventSource(
-      `${API_BASE_URL}/config/stream${token ? `?token=${token}` : ''}`
+      `${API_BASE_URL}/config/stream${authParam}`
     )
 
     eventSource.onmessage = (event) => {
