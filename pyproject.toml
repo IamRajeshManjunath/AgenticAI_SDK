@@ -3,7 +3,7 @@ name = "agenticai-sdk"
 version = "0.3.0"
 description = "Production-grade JSON-to-Workflow Engine SDK — compile declarative JSON into async, resilient, multi-agent DAGs powered by LangGraph and DeepAgent."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     # Core
     "pydantic>=2.7,<3.0",
@@ -12,15 +12,15 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
     
     # LangChain Core (only what's needed for base functionality)
-    "langchain>=0.3,<1.0",
-    "langchain-core>=0.3,<1.0",
-    "langchain-openai>=0.3,<1.0",
-    "langchain-anthropic>=0.3,<1.0",
-    "langchain-text-splitters>=0.3,<1.0",
-    "langgraph>=0.4,<1.0",
-    "langgraph-checkpoint>=2.0,<3.0",
-    "langgraph-checkpoint-postgres>=2.0,<3.0",
-    "langgraph-checkpoint-sqlite>=2.0,<3.0",
+    "langchain>=0.3,<2.0",
+    "langchain-core>=0.3,<2.0",
+    "langchain-openai>=0.3,<2.0",
+    "langchain-anthropic>=1.5,<2.0",
+    "langchain-text-splitters>=0.3,<2.0",
+    "langgraph>=0.4,<2.0",
+    "langgraph-checkpoint>=2.0,<5.0",
+    "langgraph-checkpoint-postgres>=2.0,<5.0",
+    "langgraph-checkpoint-sqlite>=2.0,<5.0",
     
     # Web Framework
     "fastapi>=0.115,<1.0",
@@ -91,62 +91,14 @@ mongodb = [
 redis = [
     "redis>=5.0,<6.0",
     "aioredis>=2.0,<3.0",
-    "valkey>=2.0,<3.0",
+    "valkey>=2.0,<6.0",
 ]
 skills = [
     "boto3>=1.34",
     "gitpython>=3.1",
     "langsmith>=0.3",
 ]
-all-integrations = [
-    # Chat models
-    "langchain-google-genai>=0.3,<1.0",
-    "langchain-google-vertexai>=0.3,<1.0",
-    "langchain-aws>=0.3,<1.0",
-    "langchain-groq>=0.3,<1.0",
-    "langchain-mistralai>=0.3,<1.0",
-    "langchain-cohere>=0.3,<1.0",
-    "langchain-xai>=0.3,<1.0",
-    "langchain-deepseek>=0.3,<1.0",
-    "langchain-nvidia-ai-endpoints>=0.3,<1.0",
-    "langchain-together>=0.3,<1.0",
-    "langchain-fireworks>=0.3,<1.0",
-    "langchain-databricks>=0.3,<1.0",
-    "langchain-ibm>=0.3,<1.0",
-    "langchain-perplexity>=0.3,<1.0",
-    "langchain-cerebras>=0.3,<1.0",
-    "langchain-huggingface>=0.3,<1.0",
-    "langchain-litellm>=0.3,<1.0",
-    "langchain-openrouter>=0.3,<1.0",
-    "langchain-ollama>=0.3,<1.0",
-    "langchain-azure-ai>=0.3,<1.0",
-    
-    # Tools
-    "langchain-tavily>=0.3,<1.0",
-    "langchain-composio>=0.3,<1.0",
-    "langchain-exa>=0.3,<1.0",
-    "langchain-google-community>=0.3,<1.0",
-    
-    # Vector stores
-    "langchain-qdrant>=0.3,<1.0",
-    "langchain-pinecone>=0.3,<1.0",
-    "langchain-chroma>=0.3,<1.0",
-    "langchain-weaviate>=0.3,<1.0",
-    "langchain-milvus>=0.3,<1.0",
-    "langchain-elasticsearch>=0.3,<1.0",
-    "langchain-postgres>=0.3,<1.0",
-    "langchain-astradb>=0.3,<1.0",
-    "langchain-redis>=0.3,<1.0",
-    "langchain-mongodb>=0.3,<1.0",
-    
-    # Embeddings
-    "langchain-nomic>=0.3,<1.0",
-    "langchain-voyageai>=0.3,<1.0",
-    
-    # Checkpointers/Stores
-    "langgraph-checkpoint-mongodb>=2.0,<3.0",
-    "langgraph-checkpoint-aws>=2.0,<3.0",
-]
+all-integrations = []
 
 [tool.setuptools.packages.find]
 where = ["."]

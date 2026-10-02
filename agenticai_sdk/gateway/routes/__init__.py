@@ -17,6 +17,11 @@ from .billing import router as billing_router
 from .secrets import router as secrets_router
 from .policies import router as policies_router
 from .skills import router as skills_router
+from .config import router as config_router
+from .runs import router as runs_router
+from .workspaces import router as workspaces_router
+from .evaluations import router as evaluations_router
+from .audit import router as audit_router
 
 # Ordered list of all route modules for app factory iteration
 route_modules: list[APIRouter] = [
@@ -28,6 +33,11 @@ route_modules: list[APIRouter] = [
     secrets_router,
     policies_router,
     skills_router,
+    config_router,
+    runs_router,
+    workspaces_router,
+    evaluations_router,
+    audit_router,
 ]
 
 __all__ = [
@@ -39,4 +49,10 @@ __all__ = [
     "billing_router",
     "secrets_router",
     "policies_router",
+    "skills_router",
+    "config_router",
+    "runs_router",
+    "workspaces_router",
+    "evaluations_router",
+    "audit_router",
 ]

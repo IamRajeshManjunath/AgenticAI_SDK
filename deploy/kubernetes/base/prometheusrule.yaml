@@ -1,0 +1,140 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: agenticai-alerts
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+    - name: agenticai.rules
+      rules:
+        # High-level service alerts
+        - alert: AgenticAIDown
+          expr: up{job="agenticai-api"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "AgenticAI API is down"
+            description: "AgenticAI API has been down for more than 1 minute."
+            runbook_url: "https://docs.agenticai.io/runbooks/api-down"
+
+        - alert: AgenticAIHighErrorRate
+          expr: |
+            sum(rate(agenticai_requests_total{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(agenticai_requests_total[5m])) by (service)
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI high error rate"
+            description: "AgenticAI API error rate is above 5% for 5 minutes."
+            runbook_url: "https://docs.agenticai.io/runbooks/high-error-rate"
+
+        # Resource alerts
+        - alert: AgenticAIHighCPUUsage
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{pod=~"agenticai-api-.*"}[5m])) by (pod)
+            /
+            sum(container_spec_cpu_quota{pod=~"agenticai-api-.*"} / container_spec_cpu_period{pod=~"agenticai-api-.*"}) by (pod)
+            > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI high CPU usage"
+            description: "Pod {{ $labels.pod }} CPU usage is above 85% for 10 minutes."
+
+        - alert: AgenticAIHighMemoryUsage
+          expr: |
+            (container_memory_usage_bytes{pod=~"agenticai-api-.*"} / container_spec_memory_limit_bytes{pod=~"agenticai-api-.*"}) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI high memory usage"
+            description: "Pod {{ $labels.pod }} memory usage is above 85% for 10 minutes."
+
+        # Database alerts
+        - alert: AgenticAIDatabaseDown
+          expr: |
+            agenticai_database_status == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "AgenticAI database connection failed"
+            description: "AgenticAI cannot connect to the database."
+
+        - alert: AgenticAIDatabaseHighLatency
+          expr: |
+            agenticai_database_latency_ms > 1000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI database high latency"
+            description: "Database query latency is above 1 second for 5 minutes."
+
+        # Redis alerts
+        - alert: AgenticAIRedisDown
+          expr: |
+            agenticai_redis_status == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "AgenticAI Redis connection failed"
+            description: "AgenticAI cannot connect to Redis."
+
+        # Cost governance alerts
+        - alert: AgenticAIHighCostRate
+          expr: |
+            rate(agenticai_cost_usd_total[1h]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI high cost rate"
+            description: "Cost rate is above $10/hour."
+
+        # Workflow alerts
+        - alert: AgenticAIWorkflowFailureRate
+          expr: |
+            sum(rate(agenticai_workflow_runs_total{status="failed"}[5m])) by (workflow)
+            /
+            sum(rate(agenticai_workflow_runs_total[5m])) by (workflow)
+            > 0.2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI workflow high failure rate"
+            description: "Workflow {{ $labels.workflow }} failure rate is above 20%."
+
+        # HITL alerts
+        - alert: AgenticAIHITLStaleApprovals
+          expr: |
+            agenticai_hitl_pending_approvals > 100
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI HITL stale approvals"
+            description: "More than 100 HITL approvals pending for over 15 minutes."
+
+        # Skills alerts
+        - alert: AgenticAISkillExecutionFailures
+          expr: |
+            rate(agenticai_skill_executions_total{status="failed"}[5m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "AgenticAI skill execution failures"
+            description: "Skill execution failure rate is above 10/minute."

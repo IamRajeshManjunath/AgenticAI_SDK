@@ -1,0 +1,139 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agenticai-postgres-backup
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: agenticai-backup
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: agenticai
+                - name: PGUSER
+                  value: agenticai
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: DB_PASSWORD
+                - name: BACKUP_PREFIX
+                  value: "agenticai"
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: BACKUP_S3_BUCKET
+                      optional: true
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: BACKUP_S3_ENDPOINT
+                      optional: true
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: AWS_ACCESS_KEY_ID
+                      optional: true
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+                      optional: true
+                - name: AWS_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: agenticai-secrets
+                      key: AWS_REGION
+                      optional: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_FILE="/tmp/${BACKUP_PREFIX}_${TIMESTAMP}.sql.gz"
+                  echo "Starting backup to ${BACKUP_FILE}"
+                  pg_dump --no-owner --no-privileges --clean --if-exists | gzip > "${BACKUP_FILE}"
+                  echo "Backup completed: $(ls -lh ${BACKUP_FILE})"
+
+                  if [ -n "${S3_BUCKET}" ]; then
+                    echo "Uploading to S3..."
+                    aws s3 cp "${BACKUP_FILE}" "s3://${S3_BUCKET}/backups/$(basename ${BACKUP_FILE})"
+                    echo "Upload completed"
+                  fi
+
+                  # Keep only last 7 local backups
+                  ls -tp /tmp/${BACKUP_PREFIX}_*.sql.gz 2>/dev/null | tail -n +8 | xargs -r rm -f
+                  echo "Cleanup completed"
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agenticai-backup
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: backup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agenticai-backup
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: backup
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["agenticai-secrets"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agenticai-backup
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: backup
+subjects:
+  - kind: ServiceAccount
+    name: agenticai-backup
+    namespace: agenticai
+roleRef:
+  kind: Role
+  name: agenticai-backup
+  apiGroup: rbac.authorization.k8s.io

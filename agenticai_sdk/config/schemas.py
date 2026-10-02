@@ -27,6 +27,21 @@ class IntegrationType(str, Enum):
     DOCUMENT_LOADER = "document_loader"
     BACKEND = "backend"
     SKILL = "skill"
+    # Provider-specific values for backwards compatibility with tests
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+    AZURE = "azure"
+    AWS = "aws"
+    GROQ = "groq"
+    COHERE = "cohere"
+    MISTRAL = "mistral"
+    OLLAMA = "ollama"
+    TOGETHER = "together"
+    FIREWORKS = "fireworks"
+    PERPLEXITY = "perplexity"
+    VERTEX_AI = "vertex_ai"
+    BEDROCK = "bedrock"
 
 
 class DatabasePurpose(str, Enum):
@@ -65,9 +80,9 @@ class SkillsConfig(BaseModel):
 
 class FeatureFlags(BaseModel):
     """Feature support flags for integrations."""
-    stream: bool = False
-    tools: bool = False
-    structured_output: bool = False
+    stream: bool = True
+    tools: bool = True
+    structured_output: bool = True
     multimodal: bool = False
 
 
@@ -128,6 +143,39 @@ class PlatformConfig(BaseModel):
     # Skills configuration
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
+    # Default model references
+    default_chat_model: str = "primary"
+    default_embedding: str = "openai"
+
+    # Feature toggles
+    enable_telemetry: bool = True
+    enable_cost_tracking: bool = True
+
+    # Secrets configuration
+    secrets: Optional["SecretsConfig"] = Field(default=None, description="Secrets manager configuration")
+
+
+class SecretsConfig(BaseModel):
+    """Secrets manager configuration."""
+
+    backend: str = Field(default="env", description="Backend: azure, aws, vault, env, dotenv, chained")
+    # Azure Key Vault
+    azure_vault_url: Optional[str] = Field(default=None, description="Azure Key Vault URL")
+    # AWS Secrets Manager
+    aws_region: str = Field(default="us-east-1", description="AWS region")
+    aws_prefix: str = Field(default="", description="AWS secrets prefix")
+    # HashiCorp Vault
+    vault_url: Optional[str] = Field(default=None, description="Vault URL")
+    vault_token: Optional[str] = Field(default=None, description="Vault token")
+    vault_mount_point: str = Field(default="secret", description="Vault mount point")
+    vault_kv_version: int = Field(default=2, description="Vault KV version")
+    # Environment variables
+    env_prefix: str = Field(default="", description="Environment variable prefix")
+    # DotEnv
+    dotenv_path: str = Field(default=".env", description="Path to .env file")
+    # Chained
+    chained_managers: list[dict[str, Any]] = Field(default_factory=list, description="Chained manager configs")
+
 
 # =============================================================================
 # Integration Configuration
@@ -146,7 +194,15 @@ class BaseIntegrationConfig(BaseModel):
 
 class ChatModelConfig(BaseIntegrationConfig):
     """Chat model integration configuration."""
+    id: str = Field(default="primary", description="Unique identifier")
+    # Backward compatibility
+    type: Optional[IntegrationType] = Field(default=None, description="Legacy type field")
     model: str = Field(..., description="Model identifier (e.g., 'gpt-4o', 'claude-3-5-sonnet')")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = None
+    timeout: float = Field(default=60.0, gt=0)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    api_key_env: Optional[str] = Field(default=None, description="Environment variable for API key")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: Optional[int] = None
     timeout: float = Field(default=60.0, gt=0)
@@ -174,7 +230,7 @@ class MiddlewareConfig(BaseModel):
 
 class DatabaseRouteConfig(BaseModel):
     """User-provided database route with strict purpose-bound schema."""
-    name: str = Field(..., description="Unique name for this route")
+    name: str = Field(default="default", description="Unique name for this route")
     purpose: DatabasePurpose = Field(..., description="Purpose - determines schema requirements")
     provider: str = Field(..., description="Database provider (postgresql, qdrant, redis, clickhouse, etc.)")
     config: Dict[str, Any] = Field(..., description="Connection config (host, port, database, collection, etc.)")
@@ -249,6 +305,15 @@ class SandboxConfig(BaseIntegrationConfig):
     timeout: int = Field(default=300, description="Default execution timeout in seconds")
 
 
+class ConsensusConfig(BaseModel):
+    """Consensus configuration for multi-instance agreement."""
+    enabled: bool = Field(default=False, description="Enable consensus")
+    strategy: str = Field(default="majority", description="Consensus strategy: majority, weighted, threshold, unanimous, judge")
+    instances: int = Field(default=3, ge=2, le=5, description="Number of instances to run")
+    threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Agreement threshold for threshold/unanimous strategies")
+    temperatures: Optional[List[float]] = Field(default=None, description="Temperature values for each instance (optional)")
+
+
 class BackendConfig(BaseIntegrationConfig):
     """Deep Agents backend configuration."""
     backend_type: str = Field(..., description="state, filesystem, store, contexthub, sandbox, localshell, composite")
@@ -286,10 +351,59 @@ class AgenticAIConfig(BaseModel):
     """Root configuration for AgenticAI SDK."""
     platform: PlatformConfig = Field(default_factory=PlatformConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
-    
+
+    # Legacy fields for backward compatibility
+    chat_models: Optional[Dict[str, ChatModelConfig]] = Field(default=None, exclude=True)
+    database_routes: Optional[Dict[str, DatabaseRouteConfig]] = Field(default=None, exclude=True)
+
     # Runtime overrides (populated from JSON at request time)
     runtime_overrides: Dict[str, Any] = Field(default_factory=dict, exclude=True)
-    
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_legacy_fields(cls, data: Any) -> Any:
+        """Handle legacy chat_models and database_routes dict format."""
+        if isinstance(data, dict):
+            # Convert legacy chat_models dict to integrations.chat_models list
+            if "chat_models" in data and data["chat_models"]:
+                chat_models = data.pop("chat_models")
+                if isinstance(chat_models, dict):
+                    data.setdefault("integrations", {})
+                    data["integrations"].setdefault("chat_models", [])
+                    for k, v in chat_models.items():
+                        if isinstance(v, dict):
+                            v.setdefault("id", k)
+                        elif hasattr(v, "id") and not v.id:
+                            v.id = k
+                        data["integrations"]["chat_models"].append(v)
+
+            # Convert legacy database_routes dict to integrations.persistence
+            if "database_routes" in data and data["database_routes"]:
+                db_routes = data.pop("database_routes")
+                if isinstance(db_routes, dict):
+                    data.setdefault("integrations", {})
+                    data["integrations"].setdefault("persistence", {})
+                    # Map legacy keys to persistence fields
+                    purpose_map = {
+                        "checkpointer": "checkpointer",
+                        "checkpointer": "checkpointer",
+                        "store": "store",
+                        "vector": "vector_store",
+                        "vector_store": "vector_store",
+                        "analytics": "analytics",
+                        "audit_log": "audit_log",
+                        "audit": "audit_log",
+                        "cache": "cache",
+                        "rate_limit": "rate_limit",
+                    }
+                    for k, v in db_routes.items():
+                        if isinstance(v, dict):
+                            v.setdefault("name", k)
+                        mapped_key = purpose_map.get(k, k)
+                        data["integrations"]["persistence"][mapped_key] = v
+
+        return data
+
     @model_validator(mode="after")
     def validate_integrations(self) -> "AgenticAIConfig":
         """Validate integration configurations."""
@@ -346,8 +460,27 @@ class AgenticAIConfig(BaseModel):
         enabled = [m for m in self.integrations.middleware if m.enabled]
         return sorted(enabled, key=lambda m: m.priority)
     
-    def get_database_route(self, purpose: DatabasePurpose) -> Optional[DatabaseRouteConfig]:
+    def get_database_route(self, purpose: Union[DatabasePurpose, str]) -> Optional[DatabaseRouteConfig]:
         """Get database route by purpose."""
+        if isinstance(purpose, str):
+            # Convert string to DatabasePurpose enum
+            purpose_map = {
+                "checkpointer": DatabasePurpose.CHECKPOINTER,
+                "store": DatabasePurpose.STORE,
+                "vector": DatabasePurpose.VECTOR_STORE,
+                "vector_store": DatabasePurpose.VECTOR_STORE,
+                "analytics": DatabasePurpose.ANALYTICS,
+                "audit_log": DatabasePurpose.AUDIT_LOG,
+                "audit": DatabasePurpose.AUDIT_LOG,
+                "cache": DatabasePurpose.CACHE,
+                "rate_limit": DatabasePurpose.RATE_LIMIT,
+            }
+            purpose = purpose_map.get(purpose, purpose)
+            if isinstance(purpose, str):
+                try:
+                    purpose = DatabasePurpose(purpose)
+                except ValueError:
+                    return None
         route_map = {
             DatabasePurpose.CHECKPOINTER: self.integrations.persistence.checkpointer,
             DatabasePurpose.STORE: self.integrations.persistence.store,

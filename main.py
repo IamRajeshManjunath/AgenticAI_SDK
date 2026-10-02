@@ -33,9 +33,8 @@ def main() -> None:
     if args.db_url:
         init_db(core_db_url=args.db_url, persist=True)
 
-    app = create_app(log_level="INFO")
     uvicorn.run(
-        app,
+        "main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

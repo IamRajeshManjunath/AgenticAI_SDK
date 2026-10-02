@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Settings, Key, Bell, Shield, Database, CheckCircle2, AlertCircle, Users, Mail, UserMinus, RotateCcw, Plug, Loader2 } from 'lucide-react'
+import { Settings, Key, Bell, Shield, Database, CheckCircle2, AlertCircle, Users, Mail, UserMinus, RotateCcw, Plug, Loader2, FileText, Save, RefreshCw, Diff } from 'lucide-react'
 import useSWR, { mutate } from 'swr'
 import { useToast } from '@/hooks/use-toast'
 import { memberApi, dbApi } from '@/lib/api'
@@ -44,6 +44,196 @@ import {
 } from '@/components/ui/alert-dialog'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
+// Config types
+interface ConfigResponse {
+  platform: Record<string, unknown>
+  integrations: Record<string, unknown>
+  version: string
+  last_modified?: string
+}
+
+interface ConfigUpdateRequest {
+  config: Record<string, unknown>
+  merge_strategy?: 'json_merge' | 'id_aware' | 'replace'
+}
+
+function yamlToJson(yaml: string): Record<string, unknown> {
+  try {
+    // Simple YAML to JSON - in production use js-yaml
+    return JSON.parse(yaml)
+  } catch {
+    return {}
+  }
+}
+
+function jsonToYaml(obj: Record<string, unknown>): string {
+  // Simple JSON to YAML - in production use js-yaml
+  return JSON.stringify(obj, null, 2)
+}
+
+function ConfigTab() {
+  const { toast } = useToast()
+  const { configApi } = require('@/lib/api')
+  const [yamlContent, setYamlContent] = useState<string>('')
+  const [originalYaml, setOriginalYaml] = useState<string>('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [showDiff, setShowDiff] = useState(false)
+
+  // Load initial config
+  const loadConfig = async () => {
+    setIsLoading(true)
+    try {
+      const res = await configApi.get()
+      if (res.data) {
+        const yaml = jsonToYaml(res.data)
+        setYamlContent(yaml)
+        setOriginalYaml(yaml)
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to load configuration', variant: 'destructive' })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Load on mount
+  useEffect(() => {
+    loadConfig()
+  }, [])
+
+  // Save config
+  const handleSave = async () => {
+    setIsSaving(true)
+    setStatus('saving')
+    try {
+      const config = yamlToJson(yamlContent)
+      const res = await configApi.update({ config, merge_strategy: 'id_aware' })
+      if (res.data) {
+        const newYaml = jsonToYaml(res.data)
+        setYamlContent(newYaml)
+        setOriginalYaml(newYaml)
+        setStatus('saved')
+        toast({ title: 'Configuration saved', description: 'Changes have been applied and hot-reload triggered' })
+      } else {
+        throw new Error(res.error || 'Failed to save')
+      }
+    } catch (error) {
+      setStatus('error')
+      toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' })
+    } finally {
+      setIsSaving(false)
+      setTimeout(() => setStatus('idle'), 2000)
+    }
+  }
+
+  // Reload config from server
+  const handleReload = async () => {
+    setIsSaving(true)
+    try {
+      const res = await configApi.reload()
+      if (res.data) {
+        const yaml = jsonToYaml(res.data)
+        setYamlContent(yaml)
+        setOriginalYaml(yaml)
+        toast({ title: 'Reloaded', description: 'Configuration reloaded from server' })
+      }
+    } catch (error) {
+      toast({ title: 'Reload failed', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Subscribe to real-time config changes
+  useEffect(() => {
+    const cleanup = configApi.streamChanges(
+      (newConfig) => {
+        const yaml = jsonToYaml(newConfig)
+        setYamlContent(yaml)
+        setOriginalYaml(yaml)
+        toast({ title: 'Config updated', description: 'Configuration changed by another user' })
+      },
+      (error) => console.error('Config stream error:', error)
+    )
+    return () => cleanup()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[600px]">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  const hasChanges = yamlContent !== originalYaml
+
+  return (
+    <Card className="glass-card h-full flex flex-col">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Configuration</CardTitle>
+            <CardDescription>
+              Edit agenticai.yaml with live syntax highlighting and validation
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReload}
+              disabled={isSaving}
+              className="gap-1"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reload
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDiff(!showDiff)}
+              className="gap-1"
+            >
+              <Diff className="w-4 h-4" />
+              Diff
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !hasChanges}
+              className="gap-2 glow-primary-sm"
+            >
+              <Save className="w-4 h-4" />
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 overflow-hidden">
+        <div className="relative h-[600px]">
+          <textarea
+            value={yamlContent}
+            onChange={(e) => setYamlContent(e.target.value)}
+            className="w-full h-full font-mono text-sm bg-background border border-border rounded-lg p-4 resize-none focus:ring-2 focus:ring-primary"
+            placeholder="Loading configuration..."
+            spellCheck={false}
+          />
+          {status === 'saved' && (
+            <div className="absolute bottom-4 right-4 animate-slide-in">
+              <div className="bg-success text-success-foreground px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                Saved successfully
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 function DatabaseStatus() {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
@@ -189,6 +379,10 @@ export default function SettingsPage() {
             <TabsTrigger value="database" className="gap-2">
               <Database className="w-4 h-4" />
               Database
+            </TabsTrigger>
+            <TabsTrigger value="config" className="gap-2">
+              <FileText className="w-4 h-4" />
+              Configuration
             </TabsTrigger>
             <TabsTrigger value="api" className="gap-2">
               <Key className="w-4 h-4" />
@@ -379,7 +573,11 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+</Card>
+            </TabsContent>
+
+          <TabsContent value="config">
+            <ConfigTab />
           </TabsContent>
 
           <TabsContent value="api">

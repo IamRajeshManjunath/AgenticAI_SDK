@@ -4,6 +4,8 @@ workflow execution, agent node, tool call, middleware pass, and RAG retrieval.
 
 Provides a singleton collector that builds structured trace reports with
 timing, token counts, costs, and error attribution.
+
+Integrates with OpenTelemetry GenAI semantic conventions.
 """
 
 from __future__ import annotations
@@ -14,6 +16,13 @@ from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field
+
+from agenticai_sdk.observability.otel_instrumentation import (
+    GenAITracer,
+    GenAIMetrics,
+    TraceContextManager,
+    init_otel,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -88,64 +97,119 @@ class TraceContext:
         self._root_span_id: str | None = None
         self._start_time = time.perf_counter()
         
-        # OTel dictionary to keep track of active OTel spans alongside our SQL spans
-        self._otel_spans = {}
-        try:
-            from opentelemetry import trace
-            self._tracer = trace.get_tracer(__name__)
-        except ImportError:
-            self._tracer = None
+        # Initialize OTel tracer
+        self._tracer = GenAITracer("agenticai.trace")
+        self._otel_spans: dict[str, Any] = {}
 
-    def add_span(self, name: str, span_type: str = "generic",
-                 parent_id: str | None = None, metadata: dict | None = None) -> str:
-        """Add a new span to the trace."""
+    def add_span(
+        self,
+        name: str,
+        span_type: str = "generic",
+        parent_id: str | None = None,
+        metadata: dict | None = None,
+        system: str = "agenticai",
+        model: str = "gpt-4o",
+        agent_id: str | None = None,
+        agent_name: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+    ) -> str:
+        """Add a new span to the trace with GenAI semantic conventions."""
+        parent_id = parent_id or self._root_span_id
+        
+        # Create OTel span with GenAI semantic conventions
+        otel_span = self._tracer.start_gen_ai_span(
+            name=name,
+            system=system,
+            model=model,
+            agent_id=metadata.get("agent_id") if metadata else None,
+            agent_name=metadata.get("agent_name") if metadata else None,
+            temperature=temperature,
+            max_tokens=metadata.get("max_tokens") if metadata else None,
+            top_p=metadata.get("top_p") if metadata else None,
+            metadata=metadata,
+        )
+        
+        # Create our internal span
         span = TraceSpan(
-            parent_id=parent_id or self._root_span_id,
+            parent_id=parent_id,
             name=name,
             span_type=span_type,
             start_time=time.perf_counter(),
             metadata=metadata or {},
         )
         self._spans[span.span_id] = span
-
+        
         if self._root_span_id is None:
             self._root_span_id = span.span_id
-
-        # Start OTel Span
-        if self._tracer:
-            # We don't have explicit context propagation here, so we just start a span
-            otel_span = self._tracer.start_span(name)
-            otel_span.set_attribute("span_type", span_type)
-            otel_span.set_attribute("trace_id", self.trace_id)
-            for k, v in (metadata or {}).items():
-                otel_span.set_attribute(f"meta.{k}", str(v))
-            self._otel_spans[span.span_id] = otel_span
-
+        
+        # Store OTel span reference
+        self._otel_spans[span.span_id] = otel_span
+        
         return span.span_id
 
-    def end_span(self, span_id: str, result: dict | None = None, error: str | None = None) -> None:
-        """Close a span with result and timing."""
+    def end_span(
+        self,
+        span_id: str,
+        result: dict | None = None,
+        error: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        finish_reason: str | None = None,
+        response_model: str | None = None,
+    ) -> None:
+        """Close a span with result, timing, and GenAI response attributes."""
         if span_id not in self._spans:
             return
+        
         span = self._spans[span_id]
         span.end_time = time.perf_counter()
         span.duration_ms = round((span.end_time - span.start_time) * 1000, 2)
         span.error = error
+        
         if result:
             span.metadata.update(result)
-
-        # End OTel Span
+        
+        # End OTel Span with GenAI response attributes
         if span_id in self._otel_spans:
             otel_span = self._otel_spans.pop(span_id)
+            
+            # Record GenAI response attributes
+            if input_tokens is not None:
+                otel_span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
+            if output_tokens is not None:
+                otel_span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
+            if finish_reason:
+                otel_span.set_attribute("gen_ai.response.finish_reason", finish_reason)
+            if result:
+                for k, v in result.items():
+                    otel_span.set_attribute(f"result.{k}", str(v))
+            
+            # End the span
             if error:
-                try:
-                    from opentelemetry.trace.status import Status, StatusCode
-                    otel_span.set_status(Status(StatusCode.ERROR, description=error))
-                except ImportError:
-                    pass
-            for k, v in (result or {}).items():
-                otel_span.set_attribute(f"result.{k}", str(v))
+                from opentelemetry.trace import Status, StatusCode
+                from opentelemetry.trace import StatusCode
+                otel_span.set_status(Status(StatusCode.ERROR, description=error))
+                otel_span.set_attribute("gen_ai.error.type", "Error")
+                otel_span.set_attribute("gen_ai.error.message", error)
+            else:
+                from opentelemetry.trace import Status, StatusCode
+                otel_span.set_status(Status(StatusCode.OK))
+            
             otel_span.end()
+        
+        # Record metrics
+        if hasattr(self, '_metrics'):
+            self._metrics.record_llm_call(
+                system="agenticai",
+                model="gpt-4o",
+                operation="agent_execution",
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=span.duration_ms or 0,
+                cost_usd=0.0,
+            )
 
     def build_report(self) -> TraceReport:
         """Build the final trace report with computed aggregates."""
@@ -195,7 +259,6 @@ class TraceContext:
 
 
 # ── Singleton Trace Collector ────────────────────────────────────────────────
-
 
 class TraceCollector:
     """Singleton trace collector managing multiple concurrent traces.
@@ -277,3 +340,11 @@ class TraceCollector:
         """Reset all traces and reports (for testing)."""
         self._traces.clear()
         self._completed_reports.clear()
+
+
+# Initialize OTel on module import
+try:
+    from agenticai_sdk.observability.otel_instrumentation import init_otel
+    init_otel()
+except ImportError:
+    pass

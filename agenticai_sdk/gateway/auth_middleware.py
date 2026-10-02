@@ -26,6 +26,8 @@ PUBLIC_PATHS = {
     "/api/v1/auth/register",
     "/api/v1/auth/login",
     "/health",
+    "/health/live",
+    "/health/ready",
     "/docs",
     "/redoc",
     "/openapi.json",

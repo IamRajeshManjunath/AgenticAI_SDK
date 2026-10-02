@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agenticai
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: dev
+
+replicas:
+  - name: agenticai-api
+    count: 2
+
+images:
+  - name: agenticai/agenticai-sdk
+    newTag: 0.3.0-dev
+
+configMapGenerator:
+  - name: agenticai-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=DEBUG
+      - FEATURE_MULTI_TENANCY=true
+      - FEATURE_RAG_PIPELINE=true
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: agenticai-api
+        namespace: agenticai
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: "250m"
+                    memory: "512Mi"
+                  limits:
+                    cpu: "1000m"
+                    memory: "2Gi"

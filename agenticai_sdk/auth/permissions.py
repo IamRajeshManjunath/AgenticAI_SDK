@@ -88,6 +88,10 @@ class Permission(str, Enum):
     INTEGRATION_DELETE = "integration:delete"
     INTEGRATION_CONNECT = "integration:connect"
     INTEGRATION_DISCONNECT = "integration:disconnect"
+    INTEGRATION_CHAT_MODEL_READ = "integration:chat_model:read"
+    INTEGRATION_CHAT_MODEL_WRITE = "integration:chat_model:write"
+    INTEGRATION_TOOL_READ = "integration:tool:read"
+    INTEGRATION_TOOL_WRITE = "integration:tool:write"
 
     # Cron / Schedules
     CRON_CREATE = "cron:create"
@@ -179,11 +183,13 @@ class Permission(str, Enum):
     CONFIG_READ = "config:read"
     CONFIG_UPDATE = "config:update"
     CONFIG_VALIDATE = "config:validate"
+    CONFIG_RELOAD = "config:reload"
     
     # Database Routing (User-Provided Stores)
     DATABASE_ROUTE_CREATE = "database:route:create"
     DATABASE_ROUTE_READ = "database:route:read"
     DATABASE_ROUTE_UPDATE = "database:route:update"
+    DATABASE_ROUTE_WRITE = "database:route:update"
     DATABASE_ROUTE_DELETE = "database:route:delete"
     
     # Plugin Operations
@@ -251,7 +257,7 @@ EDITOR_POLICY_DOCUMENT: dict[str, Any] = {
             "invite:*",
             "admin:*",
             "integration:plugin:*",
-            "config:update",
+            "config:update", "config:reload",
             "database:route:*",
             "skill:create", "skill:update", "skill:delete", "skill:execute",
         ], "resources": ["*"]},
@@ -279,7 +285,7 @@ VIEWER_POLICY_DOCUMENT: dict[str, Any] = {
             "tag:read",
             "settings:read",
             "secret:read",
-            "config:read",
+            "config:read", "config:validate",
             "database:route:read",
             "plugin:health:check",
             "plugin:version:read",
@@ -534,3 +540,17 @@ async def _get_workspace_id_internal(request: Request) -> str:
             detail="No workspace context found",
         )
     return workspace_id
+
+
+# ── Backward Compatibility Aliases ──────────────────────────────────────────────
+
+# Test expects PERMISSION_ prefix
+PERMISSION_INTEGRATION_CHAT_MODEL_READ = Permission.INTEGRATION_CHAT_MODEL_READ
+PERMISSION_INTEGRATION_CHAT_MODEL_WRITE = Permission.INTEGRATION_CHAT_MODEL_WRITE
+PERMISSION_INTEGRATION_TOOL_READ = Permission.INTEGRATION_TOOL_READ
+PERMISSION_INTEGRATION_TOOL_WRITE = Permission.INTEGRATION_TOOL_WRITE
+PERMISSION_DATABASE_ROUTE_READ = Permission.DATABASE_ROUTE_READ
+PERMISSION_DATABASE_ROUTE_WRITE = Permission.DATABASE_ROUTE_WRITE
+PERMISSION_DATABASE_ROUTE_CREATE = Permission.DATABASE_ROUTE_CREATE
+PERMISSION_DATABASE_ROUTE_UPDATE = Permission.DATABASE_ROUTE_UPDATE
+PERMISSION_DATABASE_ROUTE_DELETE = Permission.DATABASE_ROUTE_DELETE

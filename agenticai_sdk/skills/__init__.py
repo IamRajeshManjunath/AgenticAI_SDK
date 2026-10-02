@@ -29,6 +29,7 @@ from .registry import (
 
 from .deepagent_integration import DeepAgentsIntegration, DeepAgentIntegrationError, create_agentic_deep_agent
 from .loader import SkillsLoader, create_skills_loader
+from .executor import SkillExecutor, SkillExecutorConfig, create_skill_executor
 
 __all__ = [
     # Models
@@ -70,4 +71,9 @@ __all__ = [
     # Loader
     "SkillsLoader",
     "create_skills_loader",
+    
+    # Executor
+    "SkillExecutor",
+    "SkillExecutorConfig",
+    "create_skill_executor",
 ]

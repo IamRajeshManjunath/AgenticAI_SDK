@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import json
 from pathlib import Path
 
 import pytest
@@ -72,14 +73,20 @@ class TestEnvVarInterpolation:
 
 
 class TestConfigLoading:
-    """Test configuration loading from YAML."""
+    """Test configuration loading from JSON."""
     
     def test_load_minimal_config(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({
+                "apiVersion": "agenticai/v1",
+                "kind": "Config",
+                "metadata": {
+                    "name": "test",
+                    "version": "1.0.0"
+                },
                 "platform": {
                     "name": "test",
-                    "environment": "testing",
+                    "environment": "development",
                 },
                 "integrations": {
                     "chat_models": [
@@ -108,9 +115,15 @@ class TestConfigLoading:
             Path(config_path).unlink()
     
     def test_runtime_overrides(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({
-                "platform": {"name": "test"},
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({
+                "apiVersion": "agenticai/v1",
+                "kind": "Config",
+                "metadata": {
+                    "name": "test",
+                    "version": "1.0.0"
+                },
+                "platform": {"name": "test", "environment": "development"},
                 "integrations": {
                     "chat_models": [
                         {

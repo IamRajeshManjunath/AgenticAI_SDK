@@ -44,6 +44,7 @@ from agenticai_sdk.middleware.context_compression import ContextCompressionMiddl
 from agenticai_sdk.middleware.pii_masking import PIIMaskingMiddleware
 from agenticai_sdk.middleware.prompt_injection_firewall import PromptInjectionFirewallMiddleware
 from agenticai_sdk.middleware.schema_audit import SchemaAuditMiddleware
+from agenticai_sdk.config.schemas import AgenticAIConfig
 from agenticai_sdk.orchestration.consensus_broker import ConsensusBroker
 from agenticai_sdk.orchestration.fallback_router import FallbackRouter
 from agenticai_sdk.orchestration.schema_mapper import SchemaMapperEngine
@@ -51,6 +52,7 @@ from agenticai_sdk.rag.context_injector import ContextInjector
 from agenticai_sdk.rag.retriever_engine import KnowledgeRetrieverEngine
 from agenticai_sdk.rag.vector_db_factory import VectorDBClientFactory
 from agenticai_sdk.runtime.llm_factory import LLMClientFactory
+from agenticai_sdk.runtime.model_registry import ModelRegistry
 from agenticai_sdk.runtime.tool_registry import ToolRegistry
 from agenticai_sdk.schemas.agent_node import AgentNodeConfig
 from agenticai_sdk.schemas.edges import EdgeConfig
@@ -133,14 +135,26 @@ class Orchestrator:
         result = await app.ainvoke(initial_state, config=config)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, model_registry: Optional[ModelRegistry] = None) -> None:
         self._llm_factory = LLMClientFactory()
         self._tool_registry = ToolRegistry()
         self._vector_db_factory = VectorDBClientFactory()
         self._deep_agents_integration = DeepAgentsIntegration(config=None)  # Config will be set per workflow
         self._checkpointer = MemorySaver()
         self._fallback_router = FallbackRouter()
-        self._consensus_broker = ConsensusBroker()
+        self._consensus_broker = ConsensusBroker(registry=model_registry or ModelRegistry(AgenticAIConfig(
+            platform={"name": "agenticai", "environment": "development"},
+            integrations={
+                "chat_models": [{
+                    "id": "default-openai",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "config": {"api_key_env": "OPENAI_API_KEY"},
+                    "features": {"stream": True, "tools": True, "structured_output": True, "multimodal": True},
+                    "priority": 1,
+                }]
+            }
+        )))
         self._schema_mapper = SchemaMapperEngine()
         self._trace_collector = TraceCollector()
         self._metrics = MetricsRegistry()

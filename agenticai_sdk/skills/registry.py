@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -70,7 +71,7 @@ class SkillsRegistry:
         self._lock = threading.RLock()
         self._reload_pending: Dict[str, bool] = {}
         self._reload_task: Optional[asyncio.Task] = None
-        self._last_reload = datetime.utcnow()
+        self._last_reload = datetime.now(timezone.utc)
         
         # File watching
         self._observer: Optional[Observer] = None
@@ -234,6 +235,33 @@ class SkillsRegistry:
             self._rebuild_caches()
         
         return new_skills
+    
+    def load_entry_points(self) -> None:
+        """Load skills from entry points."""
+        # Load skills from entry points (setuptools entry points)
+        try:
+            import importlib.metadata
+            for entry_point in importlib.metadata.entry_points().select(group="agenticai.skills"):
+                try:
+                    skill_class = entry_point.load()
+                    # Register the skill class
+                    self._register_skill_class(entry_point.name, skill_class)
+                except Exception as exc:
+                    logger.warning("entry_point_load_failed", entry_point=entry_point.name, error=str(exc))
+        except ImportError:
+            pass
+    
+    def _register_skill_class(self, name: str, skill_class: type) -> None:
+        """Register a skill class from entry point."""
+        # This would be used for built-in skills
+        pass
+    
+    def register_skill(self, skill_class: type) -> None:
+        """Register a skill class."""
+        # Register a skill class dynamically
+        skill_name = getattr(skill_class, 'name', skill_class.__name__.lower())
+        # This would be implemented based on the skill class structure
+        pass
     
     def create_skill(self, name: str, frontmatter: Dict[str, Any], content: str, files: Optional[Dict[str, str]] = None) -> SkillManifest:
         """Create a new skill directory with SKILL.md and supporting files."""

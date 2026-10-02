@@ -16,8 +16,8 @@ logger = structlog.get_logger(__name__)
 
 class UnifiedTelemetry:
     """Single telemetry interface for platform + all integrations."""
-    
-    def __init__(self, workspace_id: str):
+
+    def __init__(self, workspace_id: str = "default"):
         self.workspace_id = workspace_id
         self.tracer = trace.get_tracer("agenticai.unified")
         self.meter = metrics.get_meter("agenticai.unified")
@@ -147,9 +147,9 @@ class UnifiedTelemetry:
 
 
 class CostGovernance:
-    """Real-time cost tracking per integration, workflow, user."""
-    
-    def __init__(self, workspace_id: str, db_session):
+    """Tracks token usage, costs, and enforces budget limits per workspace."""
+
+    def __init__(self, workspace_id: str = "default", db_session=None):
         self.workspace_id = workspace_id
         self.db = db_session
     
@@ -179,8 +179,8 @@ class CostGovernance:
 
 class HealthMonitor:
     """Health monitoring for all integrations and platform components."""
-    
-    def __init__(self, workspace_id: str, db_session):
+
+    def __init__(self, workspace_id: str = "default", db_session=None):
         self.workspace_id = workspace_id
         self.db = db_session
     

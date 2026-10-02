@@ -125,7 +125,7 @@ def create_default_pipeline() -> List[Any]:
     builder = MiddlewarePipelineBuilder()
     return (
         builder
-        .add_builtin("rate_limiter", {"config": {"requests_per_minute": 60}})
+        .add_builtin("rate_limiter", {"config": {"max_requests_per_minute": 60}})
         .add_builtin("pii_masking")
         .add_builtin("prompt_injection_firewall")
         .add_builtin("schema_validation")

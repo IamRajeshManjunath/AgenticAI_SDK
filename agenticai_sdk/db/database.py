@@ -200,6 +200,19 @@ def get_db_status() -> dict[str, Any]:
         return {"status": "error", "provider": provider, "url": url, "error": str(exc)}
 
 
+def get_redis_client():
+    """Get Redis client for health checks."""
+    import os
+    redis_url = os.getenv("REDIS_URL", "")
+    if not redis_url:
+        return None
+    try:
+        import redis
+        return redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+    except Exception:
+        return None
+
+
 def _seed_default_policies() -> None:
     """Create system IAM policies for admin/editor/viewer roles if missing."""
     from agenticai_sdk.db.models import Policy, PolicyAttachment

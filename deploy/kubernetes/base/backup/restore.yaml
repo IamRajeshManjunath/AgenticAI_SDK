@@ -1,0 +1,131 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agenticai-postgres-restore
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: restore
+spec:
+  template:
+    spec:
+      serviceAccountName: agenticai-restore
+      restartPolicy: OnFailure
+      containers:
+        - name: restore
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: agenticai
+            - name: PGUSER
+              value: agenticai
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agenticai-secrets
+                  key: DB_PASSWORD
+            - name: BACKUP_FILE
+              value: ""  # Override with: kubectl set env job/agenticai-postgres-restore BACKUP_FILE=s3://bucket/backups/file.sql.gz
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: agenticai-secrets
+                  key: BACKUP_S3_BUCKET
+                  optional: true
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agenticai-secrets
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agenticai-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: agenticai-secrets
+                  key: AWS_REGION
+                  optional: true
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              if [ -z "${BACKUP_FILE}" ]; then
+                echo "ERROR: BACKUP_FILE environment variable not set"
+                echo "Usage: kubectl set env job/agenticai-postgres-restore BACKUP_FILE=<path>"
+                exit 1
+              fi
+
+              # Download from S3 if needed
+              if echo "${BACKUP_FILE}" | grep -q "^s3://"; then
+                echo "Downloading from S3: ${BACKUP_FILE}"
+                LOCAL_FILE="/tmp/restore_$(date +%s).sql.gz"
+                aws s3 cp "${BACKUP_FILE}" "${LOCAL_FILE}"
+                BACKUP_FILE="${LOCAL_FILE}"
+              fi
+
+              if [ ! -f "${BACKUP_FILE}" ]; then
+                echo "ERROR: Backup file not found: ${BACKUP_FILE}"
+                exit 1
+              fi
+
+              echo "Restoring from ${BACKUP_FILE}"
+              gunzip -c "${BACKUP_FILE}" | psql -v ON_ERROR_STOP=1
+              echo "Restore completed successfully"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agenticai-restore
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: restore
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agenticai-restore
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: restore
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["agenticai-secrets"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agenticai-restore
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: restore
+subjects:
+  - kind: ServiceAccount
+    name: agenticai-restore
+    namespace: agenticai
+roleRef:
+  kind: Role
+  name: agenticai-restore
+  apiGroup: rbac.authorization.k8s.io

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Float, Boolean, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, Float, Boolean, Enum, UniqueConstraint, BigInteger, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -69,6 +69,7 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id = Column(String, primary_key=True, index=True)
+    organization_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True, default="default-org")
     name = Column(String, index=True)
     description = Column(String, nullable=True)
     owner_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -79,6 +80,7 @@ class Workspace(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    organization = relationship("Organization", backref="workspaces")
     workflows = relationship("Workflow", back_populates="workspace", cascade="all, delete-orphan")
     owner = relationship("User", backref="owned_workspaces", foreign_keys=[owner_id])
     plan = relationship("Plan", backref="workspaces")
@@ -95,6 +97,7 @@ class Workflow(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     workspace = relationship("Workspace", back_populates="workflows")
+    revisions = relationship("WorkflowRevision", back_populates="workflow", cascade="all, delete-orphan")
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -110,6 +113,10 @@ class Tool(Base):
     workspace = relationship("Workspace", backref="tools")
 
 class ActivityLog(Base):
+    """General activity logging for debugging and operational visibility.
+    
+    Contains PII and may be redacted in telemetry exports.
+    """
     __tablename__ = "activity_logs"
 
     id = Column(String, primary_key=True, index=True)
@@ -118,6 +125,45 @@ class ActivityLog(Base):
     event_type = Column(String)
     details = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    """Immutable security audit log for compliance and forensics.
+    
+    Contains security-relevant events with full fidelity.
+    Never redacted - contains full PII/secrets for forensic analysis.
+    Retention governed by compliance policies.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, index=True, nullable=True)  # Actor who performed action
+    
+    # Event classification
+    event_category = Column(String, nullable=False, index=True)  # auth, data, config, admin, security
+    event_type = Column(String, nullable=False, index=True)      # login, logout, create, delete, permission_change, etc.
+    severity = Column(String, default="info", index=True)        # info, warning, critical
+    
+    # Resource affected
+    resource_type = Column(String, index=True, nullable=True)    # workflow, secret, policy, user, workspace
+    resource_id = Column(String, index=True, nullable=True)
+    resource_name = Column(String, nullable=True)
+    
+    # Action details (full fidelity - no redaction)
+    action = Column(String, nullable=False)                      # create, read, update, delete, execute, grant, revoke
+    outcome = Column(String, nullable=False, index=True)         # success, failure, denied
+    details = Column(JSON, nullable=False)                       # Full context - NO REDACTION
+    
+    # Request context
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    request_id = Column(String, index=True, nullable=True)
+    
+    # Session context
+    session_id = Column(String, index=True, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 class WorkflowTrace(Base):
     """Deep observability mapping for executed workflow traces."""
@@ -307,6 +353,15 @@ class IntegrationCredential(Base):
     credential_type = Column(String, nullable=False)
     encrypted_payload = Column(String, nullable=False)
     
+    # Alias for backwards compatibility with tests
+    @property
+    def credentials_encrypted(self):
+        return self.encrypted_payload
+    
+    @credentials_encrypted.setter
+    def credentials_encrypted(self, value):
+        self.encrypted_payload = value
+    
     # Metadata
     is_active = Column(Integer, default=1)
     last_validated = Column(DateTime(timezone=True), nullable=True)
@@ -354,4 +409,66 @@ class CompliancePolicy(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     workspace = relationship("Workspace", backref="compliance_policies")
+
+
+class Organization(Base):
+    """Top-level tenant grouping for multi-tenancy."""
+    __tablename__ = "organizations"
+    
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    settings = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class WorkflowRevision(Base):
+    """Immutable workflow configuration revision for versioned deployments."""
+    __tablename__ = "workflow_revisions"
+    
+    id = Column(String, primary_key=True, index=True)
+    workflow_id = Column(String, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision = Column(BigInteger, nullable=False)
+    document = Column(JSON, nullable=False)
+    content_hash = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # draft, validated, published, archived
+    created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    workflow = relationship("Workflow", back_populates="revisions")
+    creator = relationship("User", backref="created_revisions")
+    
+    __table_args__ = (
+        UniqueConstraint('workflow_id', 'revision', name='uq_workflow_revision'),
+        UniqueConstraint('workflow_id', 'content_hash', name='uq_workflow_content_hash'),
+    )
+
+
+class WorkflowRun(Base):
+    """Execution run record referencing immutable workflow revision."""
+    __tablename__ = "workflow_runs"
+    
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_id = Column(String, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_revision_id = Column(String, ForeignKey("workflow_revisions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = Column(String, nullable=False)  # pending, running, completed, failed, paused, waiting_approval
+    idempotency_key = Column(String, unique=True, index=True, nullable=True)
+    input = Column(JSON, nullable=True)
+    output = Column(JSON, nullable=True)
+    total_input_tokens = Column(BigInteger, default=0)
+    total_output_tokens = Column(BigInteger, default=0)
+    total_cost_usd = Column(Float, default=0.0)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    workflow = relationship("Workflow", backref="runs")
+    workspace = relationship("Workspace", backref="runs")
+    workflow_revision = relationship("WorkflowRevision", backref="runs")
+    
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'idempotency_key', name='uq_workspace_idempotency_key'),
+    )
 

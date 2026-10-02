@@ -162,6 +162,47 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
         }
 
     @app.get(
+        "/health/live",
+        tags=["system"],
+        summary="Liveness probe",
+        description="Kubernetes liveness probe - returns 200 if process is alive.",
+    )
+    async def liveness_check() -> dict:
+        return {"status": "alive", "service": "agenticai-sdk"}
+
+    @app.get(
+        "/health/ready",
+        tags=["system"],
+        summary="Readiness probe",
+        description="Kubernetes readiness probe - returns 200 if ready to serve traffic.",
+    )
+    async def readiness_check() -> dict:
+        from agenticai_sdk.db.database import get_db_status as _db_status
+        db = _db_status()
+        redis_ok = False
+        try:
+            from agenticai_sdk.db.database import get_redis_client
+            redis = get_redis_client()
+            if redis:
+                redis_ok = redis.ping()
+        except Exception:
+            redis_ok = False
+
+        ready = db.get("status") == "connected" and redis_ok
+        status_code = 200 if ready else 503
+
+        from starlette.responses import JSONResponse
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ready" if ready else "not_ready",
+                "service": "agenticai-sdk",
+                "database": db,
+                "redis": {"status": "connected" if redis_ok else "disconnected"},
+            },
+        )
+
+    @app.get(
         "/",
         tags=["system"],
         summary="Root",

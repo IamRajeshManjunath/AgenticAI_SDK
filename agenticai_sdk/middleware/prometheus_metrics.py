@@ -4,7 +4,7 @@ Prometheus Metrics Middleware & Configuration — Exposes health and performance
 
 import time
 import structlog
-from typing import Any
+from typing import Any, Optional
 from prometheus_client import Counter, Histogram
 from agenticai_sdk.schemas.agent_node import AgentNodeConfig
 
@@ -38,9 +38,9 @@ class PrometheusMetricsMiddleware:
     (like schema validations) to Prometheus time-series metrics.
     """
 
-    def __init__(self, node_config: AgentNodeConfig):
+    def __init__(self, node_config: Optional[AgentNodeConfig] = None):
         self.node_config = node_config
-        self.agent_id = node_config.agent_id
+        self.agent_id = node_config.agent_id if node_config else "unknown"
         # In a real workflow context, we'd extract the workflow_id from state if available
         self.workflow_id = "default" 
 

@@ -34,12 +34,36 @@ interface MetricsResponse {
   consensus_score?: number
 }
 
+// Config types
+interface ConfigResponse {
+  platform: Record<string, unknown>
+  integrations: Record<string, unknown>
+  version: string
+  last_modified?: string
+}
+
+interface ConfigUpdateRequest {
+  config: Record<string, unknown>
+  merge_strategy?: 'json_merge' | 'id_aware' | 'replace'
+}
+
+interface ConfigSchemaResponse {
+  type: string
+  properties: Record<string, unknown>
+  required: string[]
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = useAuthStore.getState().token
+  const workspaceId = useAuthStore.getState().workspaceId
+  const headers: Record<string, string> = {}
   if (token) {
-    return { 'Authorization': `Bearer ${token}` }
+    headers['Authorization'] = `Bearer ${token}`
   }
-  return {}
+  if (workspaceId) {
+    headers['X-Workspace-ID'] = workspaceId
+  }
+  return headers
 }
 
 async function fetchApi<T>(
@@ -454,6 +478,59 @@ export const traceApi = {
   },
 }
 
+// Config API
+export const configApi = {
+  async get(): Promise<ApiResponse<ConfigResponse>> {
+    return fetchApi<ConfigResponse>('/config')
+  },
+
+  async getSchema(): Promise<ApiResponse<ConfigSchemaResponse>> {
+    return fetchApi<ConfigSchemaResponse>('/config/schema')
+  },
+
+  async update(data: ConfigUpdateRequest): Promise<ApiResponse<ConfigResponse>> {
+    return fetchApi<ConfigResponse>('/config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async reload(): Promise<ApiResponse<ConfigResponse>> {
+    return fetchApi<ConfigResponse>('/config/reload', {
+      method: 'POST',
+      body: JSON.stringify({ force: false }),
+    })
+  },
+
+  streamChanges(
+    onUpdate: (config: ConfigResponse) => void,
+    onError: (error: string) => void
+  ): () => void {
+    const token = useAuthStore.getState().token
+    const eventSource = new EventSource(
+      `${API_BASE_URL}/config/stream${token ? `?token=${token}` : ''}`
+    )
+
+    eventSource.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data)
+        if (parsed.type === 'config_updated' || parsed.type === 'initial') {
+          onUpdate(parsed.data)
+        }
+      } catch {
+        console.error('Failed to parse config SSE event:', event.data)
+      }
+    }
+
+    eventSource.onerror = () => {
+      onError('Config stream connection lost')
+      eventSource.close()
+    }
+
+    return () => eventSource.close()
+  },
+}
+
 export const api = {
   workflow: workflowApi,
   hitl: hitlApi,
@@ -466,6 +543,7 @@ export const api = {
   members: memberApi,
   db: dbApi,
   traces: traceApi,
+  config: configApi,
 }
 
 export default api

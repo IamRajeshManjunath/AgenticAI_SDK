@@ -7,7 +7,8 @@ Supports:
 - Environment variable interpolation
 """
 
-from .loader import load_config, merge_configs, ConfigLoader
+from .loader import load_config, load_config_async, merge_configs, ConfigLoader, get_config_loader
+from .manager import ConfigurationManager
 from .schemas import (
     AgenticAIConfig,
     PlatformConfig,
@@ -24,8 +25,11 @@ from .schemas import (
 
 __all__ = [
     "load_config",
+    "load_config_async",
     "merge_configs",
     "ConfigLoader",
+    "get_config_loader",
+    "ConfigurationManager",
     "AgenticAIConfig",
     "PlatformConfig",
     "IntegrationsConfig",

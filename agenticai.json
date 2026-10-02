@@ -1,0 +1,148 @@
+{
+  "apiVersion": "agenticai/v1",
+  "kind": "Config",
+  "metadata": {
+    "name": "enterprise-hierarchy",
+    "version": "1.0.0"
+  },
+  "platform": {
+    "name": "agenticai",
+    "environment": "development",
+    "version": "0.3.0"
+  },
+  "integrations": {
+    "chat_models": [
+      {
+        "id": "primary",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "parameters": {
+          "temperature": 0.1,
+          "maxTokens": 4096
+        }
+      },
+      {
+        "id": "fallback",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-latest",
+        "parameters": {
+          "temperature": 0.1,
+          "maxTokens": 4096
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "coordinator",
+        "type": "llm",
+        "name": "Strategic Project Coordinator",
+        "model": "primary",
+        "prompt": "You are the central coordinator for this request: {topic}. Your task is to: 1. Delegate deep research to the 'researcher' specialist. 2. Once research is received, delegate report writing to the 'writer' specialist. 3. Review the final report and ensure it meets executive standards.",
+        "parameters": {
+          "topic": "{topic}"
+        },
+        "subagent": [
+          "researcher",
+          "writer"
+        ],
+        "policies": {
+          "budget": {
+            "maxIterations": 10,
+            "maxInputTokens": 8192,
+            "maxOutputTokens": 4096,
+            "maxCostUsd": 1.0
+          }
+        },
+        "hitl": {
+          "enabled": true,
+          "approvalTimeoutSeconds": 1800,
+          "notificationChannels": [
+            "slack"
+          ]
+        }
+      },
+      {
+        "id": "researcher",
+        "type": "llm",
+        "name": "Expert Technical Researcher",
+        "model": "fallback",
+        "prompt": "Search and synthesize the latest information on: {topic}. Use search and internal docs.",
+        "parameters": {
+          "topic": "{topic}"
+        },
+        "tool": [
+          "web_search",
+          "data_cleaner",
+          "mcp_weather"
+        ],
+        "policies": {
+          "budget": {
+            "maxTokensPerCall": 2048,
+            "maxCostPerWorkflow": 0.5
+          }
+        }
+      },
+      {
+        "id": "writer",
+        "type": "llm",
+        "name": "Professional Technical Writer",
+        "model": "primary",
+        "prompt": "Draft a comprehensive report based on these research notes: {research_notes}",
+        "parameters": {
+          "research_notes": "{research_notes}"
+        },
+        "consensus": {
+          "enabled": true,
+          "instances": 3,
+          "threshold": 0.7
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "coordinator",
+        "to": "__end__",
+        "condition": "state.next_step == 'finished'"
+      }
+    ],
+    "policies": {
+      "budget": {
+        "maxIterations": 100,
+        "maxInputTokens": 100000,
+        "maxOutputTokens": 50000,
+        "maxCostUsd": 5.0,
+        "maxWallTimeSeconds": 3600
+      },
+      "hitl": {
+        "enabled": true,
+        "approvalTimeoutSeconds": 1800,
+        "notificationChannels": [
+          "slack"
+        ]
+      },
+      "pii": {
+        "enabled": true,
+        "action": "tokenize",
+        "restoreAtBoundaries": true
+      },
+      "injection": {
+        "enabled": true,
+        "mode": "block"
+      },
+      "compression": {
+        "enabled": true,
+        "strategy": "progressive",
+        "maxContextTokens": 8192
+      },
+      "consensus": {
+        "enabled": true,
+        "strategy": "majority",
+        "instances": 3,
+        "threshold": 0.7
+      }
+    },
+    "variables": {
+      "topic": ""
+    }
+  }
+}

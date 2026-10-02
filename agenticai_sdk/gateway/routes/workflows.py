@@ -20,10 +20,10 @@ from __future__ import annotations
 import datetime
 import time
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Header
 from langchain_core.messages import HumanMessage
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
@@ -39,6 +39,7 @@ from agenticai_sdk.exceptions import AgenticSDKError, HITLRejectError, WorkflowC
 from agenticai_sdk.runtime.orchestrator import Orchestrator
 from agenticai_sdk.schemas.workflow import WorkflowSchema
 from agenticai_sdk.state.workflow_state import WorkflowState
+from agenticai_sdk.persistence import RevisionManager, RevisionConflictError, RevisionNotFoundError
 
 from master_agent.agent import StructuredMasterAgent
 
@@ -51,6 +52,66 @@ _orchestrator = Orchestrator()
 _master_agent = StructuredMasterAgent()
 
 _EXEC_CACHE: dict[str, Any] = {}
+
+
+def get_if_match(request: Request) -> Optional[str]:
+    """Extract If-Match header for optimistic concurrency."""
+    return request.headers.get("If-Match")
+
+
+def get_idempotency_key(request: Request) -> Optional[str]:
+    """Extract Idempotency-Key header for execution deduplication."""
+    return request.headers.get("Idempotency-Key")
+
+
+def check_if_match(if_match: Optional[str], current_revision: int) -> None:
+    """Validate If-Match header against current revision.
+    
+    Raises HTTPException 409 if mismatch.
+    """
+    if if_match is None:
+        return  # No concurrency control requested
+    
+    try:
+        expected = int(if_match.strip('"'))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid If-Match header: {if_match}. Must be integer revision number."
+        )
+    
+    if expected != current_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "WORKFLOW_REVISION_CONFLICT",
+                "message": "Workflow was modified by another operation.",
+                "request_id": str(uuid.uuid4()),
+                "details": {
+                    "expected_revision": expected,
+                    "current_revision": current_revision
+                }
+            }
+        )
+
+
+def check_idempotency_key(db: Session, idempotency_key: Optional[str], workspace_id: str) -> Optional[str]:
+    """Check if idempotency key was already used.
+    
+    Returns existing run_id if key exists, None otherwise.
+    """
+    if not idempotency_key:
+        return None
+    
+    from agenticai_sdk.db.models import WorkflowRun
+    existing = db.query(WorkflowRun).filter(
+        WorkflowRun.workspace_id == workspace_id,
+        WorkflowRun.idempotency_key == idempotency_key
+    ).first()
+    
+    if existing:
+        return existing.id
+    return None
 
 
 # ── Request / Response Models ─────────────────────────────────────────────────
@@ -261,12 +322,32 @@ def _persist_execution(
 
 
 @router.post("/run", response_model=WorkflowRunResponse)
-async def run_workflow(request_body: WorkflowRunRequest | WorkflowRunByKeyRequest, request: Request, _: User = Depends(require_permission("workflow:run"))):
+async def run_workflow(
+    request_body: WorkflowRunRequest | WorkflowRunByKeyRequest, 
+    request: Request, 
+    _: User = Depends(require_permission("workflow:run")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key")
+):
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     log = logger.bind(request_id=request_id)
 
     db = next(get_session())
     try:
+        workspace_id = _get_workspace_id(request)
+        
+        # Check idempotency key
+        existing_run_id = check_idempotency_key(db, idempotency_key, workspace_id)
+        if existing_run_id:
+            log.info("idempotent_request_detected", existing_run_id=existing_run_id)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "IDEMPOTENCY_KEY_EXISTS",
+                    "message": "Request with this Idempotency-Key has already been processed.",
+                    "existing_run_id": existing_run_id
+                }
+            )
+        
         workflow_scope = getattr(request.state, "workflow_key_scope", None)
 
         if isinstance(request_body, WorkflowRunByKeyRequest):
@@ -320,6 +401,7 @@ async def run_workflow_by_id(
     request: Request,
     db: Session = Depends(get_session),
     _: User = Depends(require_permission("workflow:run")),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key")
 ):
     workflow_scope = getattr(request.state, "workflow_key_scope", None)
     if workflow_scope and workflow_scope != workflow_id:
@@ -330,6 +412,20 @@ async def run_workflow_by_id(
         raise HTTPException(status_code=404, detail="Workflow not found")
     if not wf.config:
         raise HTTPException(status_code=400, detail="Workflow has no config — compile it first")
+
+    # Check idempotency key
+    existing_run_id = check_idempotency_key(db, idempotency_key, _get_workspace_id(request))
+    if existing_run_id:
+        log = logger.bind(workflow_id=workflow_id)
+        log.info("idempotent_request_detected", existing_run_id=existing_run_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "IDEMPOTENCY_KEY_EXISTS",
+                "message": "Request with this Idempotency-Key has already been processed.",
+                "existing_run_id": existing_run_id
+            }
+        )
 
     log = logger.bind(workflow_id=workflow_id)
     log.info("workflow_run_by_id", input_preview=body.input_message[:100])
@@ -417,11 +513,27 @@ async def get_workflow(w_id: str, request: Request, db: Session = Depends(get_se
 
 
 @router.patch("/workflows/{w_id}", tags=["saas-workflows"])
-async def update_workflow(w_id: str, request: Request, db: Session = Depends(get_session), _: User = Depends(require_permission("workflow:update"))):
+async def update_workflow(
+    w_id: str, 
+    request: Request, 
+    db: Session = Depends(get_session), 
+    _: User = Depends(require_permission("workflow:update")),
+    if_match: Optional[str] = Header(None, alias="If-Match")
+):
     ws_id = _get_workspace_id(request)
     w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
     if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current revision for If-Match validation
+    from agenticai_sdk.persistence import RevisionManager
+    revision_mgr = RevisionManager(db)
+    latest_revision = revision_mgr.get_latest_revision(w_id)
+    current_revision = latest_revision.revision if latest_revision else 0
+    
+    # Validate If-Match header
+    check_if_match(if_match, current_revision)
+    
     body = await request.json()
     if "name" in body:
         w.name = body["name"]
@@ -433,16 +545,335 @@ async def update_workflow(w_id: str, request: Request, db: Session = Depends(get
 
 
 @router.delete("/workflows/{w_id}", tags=["saas-workflows"])
-async def delete_workflow(w_id: str, request: Request, db: Session = Depends(get_session), _: User = Depends(require_permission("workflow:delete"))):
+async def delete_workflow(
+    w_id: str, 
+    request: Request, 
+    db: Session = Depends(get_session), 
+    _: User = Depends(require_permission("workflow:delete")),
+    if_match: Optional[str] = Header(None, alias="If-Match")
+):
     ws_id = _get_workspace_id(request)
     w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
     if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current revision for If-Match validation
+    from agenticai_sdk.persistence import RevisionManager
+    revision_mgr = RevisionManager(db)
+    latest_revision = revision_mgr.get_latest_revision(w_id)
+    current_revision = latest_revision.revision if latest_revision else 0
+    
+    # Validate If-Match header
+    check_if_match(if_match, current_revision)
+    
     name = w.name
     db.delete(w)
     db.commit()
     _log_activity(db, "workflow.deleted", "workflow", w_id, name, workspace_id=ws_id)
     return {"success": True}
+
+
+# ── Workflow Revisions ─────────────────────────────────────────────────────────
+
+
+class RevisionCreateRequest(BaseModel):
+    document: dict = Field(...)
+    status: str = Field(default="draft")
+
+
+class RevisionStatusUpdateRequest(BaseModel):
+    status: str = Field(..., pattern="^(draft|validated|published|archived)$")
+
+
+class RollbackRequest(BaseModel):
+    target_revision: int
+
+
+@router.get("/workflows/{w_id}/revisions", tags=["saas-workflows"])
+async def list_revisions(
+    w_id: str, 
+    request: Request, 
+    db: Session = Depends(get_session), 
+    _: User = Depends(require_permission("workflow:read")),
+    limit: int = 50,
+    offset: int = 0
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    revision_mgr = RevisionManager(db)
+    revisions = revision_mgr.list_revisions(w_id, limit=limit, offset=offset)
+    
+    return [{
+        "id": r.id,
+        "revision": r.revision,
+        "status": r.status,
+        "content_hash": r.content_hash,
+        "created_by": r.created_by,
+        "created_at": r.created_at.isoformat() if r.created_at else None
+    } for r in revisions]
+
+
+@router.get("/workflows/{w_id}/revisions/{revision}", tags=["saas-workflows"])
+async def get_revision(
+    w_id: str, 
+    revision: int, 
+    request: Request, 
+    db: Session = Depends(get_session), 
+    _: User = Depends(require_permission("workflow:read"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    revision_mgr = RevisionManager(db)
+    rev = revision_mgr.get_revision(w_id, revision)
+    if not rev:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "document": rev.document,
+        "content_hash": rev.content_hash,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at.isoformat() if rev.created_at else None
+    }
+
+
+@router.post("/workflows/{w_id}/revisions", tags=["saas-workflows"])
+async def create_revision(
+    w_id: str,
+    request: Request,
+    body: RevisionCreateRequest,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:create"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current user
+    from agenticai_sdk.auth.dependencies import get_current_user
+    user = await get_current_user(request, db)
+    
+    revision_mgr = RevisionManager(db)
+    try:
+        rev = revision_mgr.create_revision(
+            workflow_id=w_id,
+            document=body.document,
+            created_by=user.id,
+            status=body.status
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "content_hash": rev.content_hash,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at.isoformat() if rev.created_at else None
+    }
+
+
+@router.post("/workflows/{w_id}/revisions/{revision}/publish", tags=["saas-workflows"])
+async def publish_revision(
+    w_id: str,
+    revision: int,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:update"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current user
+    from agenticai_sdk.auth.dependencies import get_current_user
+    user = await get_current_user(request, db)
+    
+    revision_mgr = RevisionManager(db)
+    try:
+        rev = revision_mgr.publish_revision(w_id, revision, user.id)
+    except RevisionNotFoundError:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    
+    # Update workflow config to published revision
+    w.config = rev.document
+    db.commit()
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "message": "Revision published successfully"
+    }
+
+
+@router.post("/workflows/{w_id}/revisions/rollback", tags=["saas-workflows"])
+async def rollback_revision(
+    w_id: str,
+    body: RollbackRequest,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:update"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current user
+    from agenticai_sdk.auth.dependencies import get_current_user
+    user = await get_current_user(request, db)
+    
+    revision_mgr = RevisionManager(db)
+    try:
+        new_rev = revision_mgr.rollback_revision(w_id, body.target_revision, user.id)
+    except RevisionNotFoundError:
+        raise HTTPException(status_code=404, detail="Target revision not found")
+    
+    # Update workflow config to rolled back revision
+    w.config = new_rev.document
+    db.commit()
+    
+    return {
+        "id": new_rev.id,
+        "revision": new_rev.revision,
+        "status": new_rev.status,
+        "message": f"Rolled back to revision {body.target_revision} (new revision: {new_rev.revision})"
+    }
+
+
+@router.patch("/workflows/{w_id}/revisions/{revision}", tags=["saas-workflows"])
+async def update_revision_status(
+    w_id: str,
+    revision: int,
+    body: RevisionStatusUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:update"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    # Get current user
+    from agenticai_sdk.auth.dependencies import get_current_user
+    user = await get_current_user(request, db)
+    
+    revision_mgr = RevisionManager(db)
+    try:
+        rev = revision_mgr.update_revision_status(w_id, revision, body.status, user.id)
+    except RevisionNotFoundError:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "message": f"Revision status updated to {body.status}"
+    }
+
+
+@router.get("/workflows/{w_id}/revisions/latest", tags=["saas-workflows"])
+async def get_latest_revision(
+    w_id: str,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:read"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    revision_mgr = RevisionManager(db)
+    rev = revision_mgr.get_latest_revision(w_id)
+    if not rev:
+        raise HTTPException(status_code=404, detail="No revisions found")
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "document": rev.document,
+        "content_hash": rev.content_hash,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at.isoformat() if rev.created_at else None
+    }
+
+
+@router.get("/workflows/{w_id}/revisions/published", tags=["saas-workflows"])
+async def get_published_revision(
+    w_id: str,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:read"))
+):
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    
+    revision_mgr = RevisionManager(db)
+    rev = revision_mgr.get_published_revision(w_id)
+    if not rev:
+        raise HTTPException(status_code=404, detail="No published revision found")
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "document": rev.document,
+        "content_hash": rev.content_hash,
+        "created_by": rev.created_by,
+        "created_at": rev.created_at.isoformat() if rev.created_at else None
+    }
+
+
+@router.post("/workflows/{w_id}/compile", tags=["saas-workflows"])
+async def compile_workflow(
+    w_id: str,
+    request: Request,
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:create"))
+):
+    """Compile workflow and create a validated revision."""
+    ws_id = _get_workspace_id(request)
+    w = db.query(Workflow).filter(Workflow.id == w_id, Workflow.workspace_id == ws_id).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not w.config:
+        raise HTTPException(status_code=400, detail="Workflow has no config — compile it first")
+    
+    # Get current user
+    from agenticai_sdk.auth.dependencies import get_current_user
+    user = await get_current_user(request, db)
+    
+    revision_mgr = RevisionManager(db)
+    try:
+        rev = revision_mgr.validate_and_publish(w_id, w.config, user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    
+    return {
+        "id": rev.id,
+        "revision": rev.revision,
+        "status": rev.status,
+        "message": "Workflow compiled and published successfully"
+    }
 
 
 @router.delete("/workspaces/{ws_id}", tags=["saas-workspaces"])

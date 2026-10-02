@@ -29,19 +29,18 @@ class IntegrationType(str, Enum):
 
 class FeatureFlags(BaseModel):
     """Feature support flags for integrations."""
-    stream: bool = False
-    tools: bool = False
-    structured_output: bool = False
+    stream: bool = True
+    tools: bool = True
+    structured_output: bool = True
     multimodal: bool = False
 
 
-class HealthStatus(BaseModel):
+class HealthStatus(str, Enum):
     """Health check result for a plugin."""
-    healthy: bool
-    latency_ms: Optional[float] = None
-    message: str = ""
-    details: Dict[str, Any] = Field(default_factory=dict)
-    version: Optional[str] = None
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"
 
 
 @dataclass

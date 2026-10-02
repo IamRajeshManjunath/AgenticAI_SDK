@@ -11,6 +11,7 @@ from agenticai_sdk.client import AgenticAI
 
 
 def _mock_run_response():
+    request = httpx.Request("POST", "http://test/api/v1/workflow/run")
     return httpx.Response(
         200,
         json={
@@ -25,6 +26,7 @@ def _mock_run_response():
             "inner_thoughts": [],
             "next_step": None,
         },
+        request=request,
     )
 
 
@@ -88,7 +90,8 @@ class TestRun:
     def test_run_raises_on_error(self):
         client = AgenticAI(api_key="wfk_test")
 
-        error_resp = httpx.Response(404, json={"detail": "Not found"})
+        error_request = httpx.Request("POST", "http://test/api/v1/workflow/run")
+        error_resp = httpx.Response(404, json={"detail": "Not found"}, request=error_request)
         with mock.patch.object(client._client, "post", return_value=error_resp):
             with pytest.raises(httpx.HTTPStatusError):
                 client.run("Hello")
@@ -126,7 +129,8 @@ class TestRunById:
     def test_run_by_id_raises_on_error(self):
         client = AgenticAI(api_key="wfk_test")
 
-        error_resp = httpx.Response(500, json={"detail": "Server error"})
+        error_request = httpx.Request("POST", "http://test/api/v1/workflow/run/wf_bad")
+        error_resp = httpx.Response(500, json={"detail": "Server error"}, request=error_request)
         with mock.patch.object(client._client, "post", return_value=error_resp):
             with pytest.raises(httpx.HTTPStatusError):
                 client.run_by_id("wf_bad", "Hello")

@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agenticai
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: prod
+
+replicas:
+  - name: agenticai-api
+    count: 5
+
+images:
+  - name: agenticai/agenticai-sdk
+    newTag: 0.3.0
+
+configMapGenerator:
+  - name: agenticai-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=INFO
+      - FEATURE_MULTI_TENANCY=true
+      - FEATURE_RAG_PIPELINE=true
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: agenticai-api
+        namespace: agenticai
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: "1000m"
+                    memory: "2Gi"
+                  limits:
+                    cpu: "4000m"
+                    memory: "8Gi"
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: app.kubernetes.io/name
+                          operator: In
+                          values:
+                            - agenticai
+                        - key: app.kubernetes.io/component
+                          operator: In
+                          values:
+                            - api
+                    topologyKey: topology.kubernetes.io/zone

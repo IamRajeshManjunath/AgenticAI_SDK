@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agenticai-config
+  namespace: agenticai
+  labels:
+    app.kubernetes.io/name: agenticai
+    app.kubernetes.io/component: config
+data:
+  # Core configuration (can be overridden by secrets)
+  AGENTICAI_DB_URL: "postgresql://agenticai:$(DB_PASSWORD)@postgres:5432/agenticai"
+  REDIS_URL: "redis://redis:6379/0"
+  LOG_LEVEL: "INFO"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
+  # Feature flags
+  FEATURE_MULTI_TENANCY: "true"
+  FEATURE_RAG_PIPELINE: "true"
+  FEATURE_COST_GOVERNANCE: "true"
+  FEATURE_HITL: "true"
+  FEATURE_SKILLS: "true"
+  FEATURE_EVALUATIONS: "true"
+  # Deep agent settings
+  DEEP_AGENT_MODEL: "anthropic:claude-sonnet-4-6"

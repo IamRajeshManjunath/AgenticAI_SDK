@@ -16,6 +16,8 @@ def _use_temp_db(tmp_path):
     """Force all tests to use a fresh temporary SQLite database."""
     db_path = tmp_path / "test.db"
     os.environ["AGENTICAI_DB_URL"] = f"sqlite:///{db_path}"
+    from agenticai_sdk.db.database import reset_db
+    reset_db(f"sqlite:///{db_path}")
     yield
     os.environ.pop("AGENTICAI_DB_URL", None)
 
@@ -29,7 +31,7 @@ def client():
 @pytest.fixture
 def auth_headers(client):
     email = f"gw-test-{uuid.uuid4().hex[:8]}@example.com"
-    resp = client.post("/auth/register", json={
+    resp = client.post("/api/v1/auth/register", json={
         "email": email,
         "password": "strongpassword123",
         "full_name": "Gateway Tester",

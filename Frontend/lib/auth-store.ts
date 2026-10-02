@@ -10,6 +10,7 @@ interface AuthStore extends AuthState {
   logout: () => void
   clearError: () => void
   setUser: (user: User) => void
+  setWorkspaceId: (workspaceId: string) => void
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -17,6 +18,7 @@ export const useAuthStore = create<AuthStore>()(
     (set) => ({
       user: null,
       token: null,
+      workspaceId: null,
       isLoading: false,
       error: null,
 
@@ -36,6 +38,7 @@ export const useAuthStore = create<AuthStore>()(
           set({
             user: data.user,
             token: data.access_token,
+            workspaceId: data.user.default_workspace_id,
             isLoading: false,
             error: null,
           })
@@ -64,6 +67,7 @@ export const useAuthStore = create<AuthStore>()(
           set({
             user: data.user,
             token: data.access_token,
+            workspaceId: data.user.default_workspace_id,
             isLoading: false,
             error: null,
           })
@@ -77,18 +81,21 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       logout: () => {
-        set({ user: null, token: null, error: null })
+        set({ user: null, token: null, workspaceId: null, error: null })
       },
 
       clearError: () => set({ error: null }),
 
       setUser: (user) => set({ user }),
+
+      setWorkspaceId: (workspaceId) => set({ workspaceId }),
     }),
     {
       name: 'agenticai-auth-store',
       partialize: (state) => ({
         user: state.user,
         token: state.token,
+        workspaceId: state.workspaceId,
       }),
     }
   )

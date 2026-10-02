@@ -1,0 +1,247 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agenticai.io/schemas/agenticai.schema.json",
+  "title": "AgenticAI SDK Configuration",
+  "description": "Configuration schema for AgenticAI SDK v0.3.0",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "platform", "integrations"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "agenticai/v1",
+      "description": "Configuration API version"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Config",
+      "description": "Configuration kind"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64,
+          "description": "Configuration name (lowercase, hyphens)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[a-zA-Z0-9]+)?$",
+          "description": "Semantic version"
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "Optional namespace"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Key-value labels for selection"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Non-identifying metadata"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": ["name", "environment"],
+      "properties": {
+        "name": { "type": "string" },
+        "environment": { "type": "string", "enum": ["development", "staging", "production"] },
+        "version": { "type": "string" },
+        "database_url": { "type": "string" },
+        "database_pool_size": { "type": "integer", "minimum": 1, "default": 20 },
+        "database_max_overflow": { "type": "integer", "minimum": 0, "default": 10 },
+        "jwt_secret_env": { "type": "string", "default": "JWT_SECRET" },
+        "jwt_algorithm": { "type": "string", "default": "HS256" },
+        "jwt_expiry_minutes": { "type": "integer", "minimum": 1, "default": 60 },
+        "api_key_prefix": { "type": "string", "default": "akai_" },
+        "bcrypt_rounds": { "type": "integer", "minimum": 4, "maximum": 31, "default": 12 },
+        "encryption_key_env": { "type": "string", "default": "ENCRYPTION_KEY" },
+        "otel_service_name": { "type": "string", "default": "agenticai-sdk" },
+        "otel_exporter_endpoint": { "type": ["string", "null"] },
+        "prometheus_port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 9090 },
+        "enable_billing": { "type": "boolean", "default": false },
+        "enable_marketplace": { "type": "boolean", "default": true },
+        "enable_skills": { "type": "boolean", "default": true },
+        "enable_collaborative_editing": { "type": "boolean", "default": false },
+        "skills": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "skills_dir": { "type": "string", "default": "skills" },
+            "auto_discover": { "type": "boolean", "default": true },
+            "watch_for_changes": { "type": "boolean", "default": true },
+            "deep_agent_model": { "type": "string", "default": "anthropic:claude-sonnet-4-6" },
+            "remote_sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "enum": ["git", "s3", "fleet"] },
+                  "url": { "type": "string" },
+                  "branch": { "type": "string", "default": "main" },
+                  "path": { "type": "string", "default": "skills" },
+                  "auth": { "type": ["object", "null"] }
+                },
+                "required": ["type", "url"]
+              }
+            },
+            "validation_mode": { "type": "string", "enum": ["strict", "permissive"], "default": "strict" }
+          }
+        }
+      }
+    },
+    "integrations": {
+      "type": "object",
+      "properties": {
+        "chat_models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "provider", "model"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+              "provider": {
+                "type": "string",
+                "enum": ["openai", "azure_openai", "anthropic", "google", "ollama", "vllm", "bedrock", "vertex_ai", "custom"]
+              },
+              "model": { "type": "string" },
+              "config": {
+                "type": "object",
+                "properties": {
+                  "api_key_env": { "type": "string" },
+                  "base_url": { "type": "string" }
+                }
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+                  "max_tokens": { "type": "integer", "minimum": 1 },
+                  "top_p": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              },
+              "features": {
+                "type": "object",
+                "properties": {
+                  "stream": { "type": "boolean" },
+                  "tools": { "type": "boolean" },
+                  "structured_output": { "type": "boolean" },
+                  "multimodal": { "type": "boolean" }
+                }
+              },
+              "priority": { "type": "integer", "minimum": 0, "default": 1 }
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "type"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["mcp", "rest_api", "custom_python", "built_in"]
+              },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "connection_string": { "type": "string" },
+              "arguments": { "type": "object" },
+              "enabled": { "type": "boolean", "default": true }
+            }
+          }
+        },
+        "middleware": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "type"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string" },
+              "enabled": { "type": "boolean", "default": true },
+              "config": { "type": "object" },
+              "priority": { "type": "integer", "default": 0 }
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "checkpointer": { "type": ["object", "null"] },
+            "store": { "type": ["object", "null"] },
+            "vector_store": { "type": ["object", "null"] },
+            "analytics": { "type": ["object", "null"] },
+            "audit_log": { "type": ["object", "null"] },
+            "cache": { "type": ["object", "null"] },
+            "rate_limit": { "type": ["object", "null"] }
+          }
+        },
+        "sandboxes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "sandbox_type"],
+            "properties": {
+              "id": { "type": "string" },
+              "sandbox_type": {
+                "type": "string",
+                "enum": ["daytona", "modal", "e2b", "runloop", "agentcore", "custom"]
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpu": { "type": "number" },
+                  "memory_mb": { "type": "integer" },
+                  "disk_gb": { "type": "number" },
+                  "gpu": { "type": "boolean" }
+                }
+              },
+              "timeout": { "type": "integer", "minimum": 1, "default": 300 }
+            }
+          }
+        },
+        "backends": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "backend_type"],
+            "properties": {
+              "id": { "type": "string" },
+              "backend_type": {
+                "type": "string",
+                "enum": ["state", "filesystem", "store", "contexthub", "sandbox", "localshell", "composite"]
+              },
+              "routes": { "type": "object" }
+            }
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["skill_id"],
+            "properties": {
+              "skill_id": { "type": "string" },
+              "max_iterations": { "type": "integer", "minimum": 1, "maximum": 50, "default": 5 },
+              "timeout_seconds": { "type": "integer", "minimum": 30, "default": 300 },
+              "allowed_integrations": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

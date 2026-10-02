@@ -1,6 +1,7 @@
 """Tests for the Skills system."""
 
 import pytest
+from datetime import datetime, timezone
 from agenticai_sdk.skills import (
     SkillMetadata,
     SkillParameter,
@@ -27,7 +28,7 @@ class TestSkillBase:
             name="test_skill",
             description="A test skill",
             type=SkillType.SEARCH,
-            modified_at=datetime.utcnow(),
+            modified_at=datetime.now(timezone.utc),
         )
         assert metadata.name == "test_skill"
         assert metadata.type == SkillType.SEARCH
@@ -86,11 +87,11 @@ class TestSkillRegistry:
         
         assert len(registry._skills) == 7
         expected_skills = [
-            "web_search",
-            "code_execution",
-            "document_analysis",
-            "data_processing",
-            "api_integration",
+            "web-research",
+            "code-generation",
+            "document-analysis",
+            "data-processing",
+            "api-integration",
             "reasoning",
             "planning",
         ]
@@ -120,8 +121,8 @@ class TestSkillPipeline:
     def test_pipeline_validation(self):
         """Test pipeline validation."""
         pipeline = SkillPipeline(name="test")
-        step1_id = pipeline.add_step("web_search")
-        step2_id = pipeline.add_step("code_execution", dependencies=[step1_id])
+        step1_id = pipeline.add_step("web-research")
+        step2_id = pipeline.add_step("code-generation", dependencies=[step1_id])
 
         valid, errors = pipeline.validate()
         assert valid is True
@@ -130,8 +131,8 @@ class TestSkillPipeline:
     def test_pipeline_cycle_detection(self):
         """Test cycle detection."""
         pipeline = SkillPipeline(name="test")
-        step1_id = pipeline.add_step("web_search")
-        step2_id = pipeline.add_step("code_execution", dependencies=[step1_id])
+        step1_id = pipeline.add_step("web-research")
+        step2_id = pipeline.add_step("code-generation", dependencies=[step1_id])
 
         # Manually create a cycle by modifying dependencies
         step1 = pipeline.get_step(step1_id)
@@ -159,7 +160,7 @@ class TestSkillComposer:
         composer = SkillComposer(registry)
 
         pipeline = SkillPipeline(name="test_pipeline")
-        pipeline.add_step("web_search")
+        pipeline.add_step("web-research")
         composer.register_pipeline(pipeline)
 
         assert "test_pipeline" in composer._pipelines
@@ -190,7 +191,7 @@ class TestPipelineExecution:
         composer = SkillComposer(registry)
 
         pipeline = SkillPipeline(name="simple")
-        search_id = pipeline.add_step("web_search", params={"query": "test"})
+        search_id = pipeline.add_step("web-research", params={"query": "test"})
         reason_id = pipeline.add_step("reasoning", params={"problem": "analyze"}, dependencies=[search_id])
         composer.register_pipeline(pipeline)
 
