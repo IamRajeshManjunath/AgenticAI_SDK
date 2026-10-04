@@ -87,9 +87,9 @@ export function HITLApprovalCard({ request, onUpdate }: HITLApprovalCardProps) {
             variant="destructive"
             onClick={() => {
               if (!window.confirm('Are you sure you want to reject this action?')) return
-              useHITLApproval().reject(request.id, 'agent_id_placeholder', feedback)
+              reject(request.id, request.agent_id, feedback)
             }}
-            disabled
+            disabled={isLoading}
             className="flex-1 gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -99,8 +99,9 @@ export function HITLApprovalCard({ request, onUpdate }: HITLApprovalCardProps) {
           </Button>
           <Button
             onClick={() => {
-              useHITLApproval().approve(request.id, 'agent_id_placeholder', feedback)
+              approve(request.id, request.agent_id, feedback)
             }}
+            disabled={isLoading}
             className="flex-1 gap-2 glow-primary-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -109,7 +110,7 @@ export function HITLApprovalCard({ request, onUpdate }: HITLApprovalCardProps) {
             Approve
           </Button>
         </div>
-      </div>
-    </CardContent>
-  </Card>
+      </CardContent>
+    </Card>
 )
+}

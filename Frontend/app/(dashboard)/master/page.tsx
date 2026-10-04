@@ -1,16 +1,15 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { RefreshCw, Zap, Sparkles, Download, FileCode, Copy, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { RefreshCw, Zap, Sparkles, Download, FileCode, Copy, CheckCircle2, AlertCircle, Loader2, Settings2, X, XCircle, Play } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
@@ -109,6 +108,19 @@ export default function MasterAgentPage() {
     }
   }, [proposalJsonStr])
 
+  const handleHandshake = () => {
+    if (compilationStatus !== 'success') return
+
+    const workflowId = useWorkflowStore.getState().importWorkflow(proposalJsonStr)
+    if (!workflowId) {
+      alert('The compiled workflow could not be imported.')
+      return
+    }
+
+    setIsProposalOpen(false)
+    alert('Workflow imported successfully.')
+  }
+
   const handleDownload = () => {
     const blob = new Blob([proposalJsonStr], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -200,6 +212,7 @@ export default function MasterAgentPage() {
                     Review and modify the synthesized JSON configuration below. Lock execution with a strict schema compiler dry-run before manual handshake dispatch.
                   </DialogDescription>
                 </div>
+              </div>
               </DialogHeader>
 
               <div className="flex-1 min-h-0 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
@@ -244,7 +257,6 @@ export default function MasterAgentPage() {
                           </div>
                         </div>
                       </div>
-                    </div>
                   )}
 
                   {/* Node List View */}
@@ -484,5 +496,3 @@ export default function MasterAgentPage() {
     </div>
   )
 }
-
-export default MasterAgentPage

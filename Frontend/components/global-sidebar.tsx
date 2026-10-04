@@ -15,8 +15,6 @@ import {
   CreditCard,
   LayoutDashboard,
   Activity,
-  Menu,
-  X,
   Sparkles,
   FolderOpen,
   MoreHorizontal,
@@ -108,40 +106,46 @@ export function GlobalSidebar() {
 
   const userInitials = user?.full_name
     ? user.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-    : user?.email?.slice(0, 2).toUpperCase() ?? '??'
+    : user?.email?.slice(0, 2).toUpperCase() ?? 'U'
 
   return (
     <>
-      <button
-        onClick={toggleSidebar}
-        className="fixed top-4 left-4 z-50 p-2 rounded-lg bg-card border border-border md:hidden"
-        aria-label="Toggle sidebar"
-      >
-        {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-background/70 backdrop-blur-sm md:hidden"
+          aria-label="Close navigation"
+          onClick={toggleSidebar}
+        />
+      )}
 
-      <AnimatePresence>
-        {sidebarOpen && (
-          <motion.aside
-            initial={{ x: -280, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -280, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed left-0 top-0 h-full w-64 bg-sidebar border-r border-sidebar-border z-40 flex flex-col"
-          >
-            {/* Logo */}
-            <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
+      <aside
+        onClick={(event) => {
+          if (
+            window.matchMedia('(max-width: 767px)').matches &&
+            (event.target as HTMLElement).closest('a')
+          ) {
+            toggleSidebar()
+          }
+        }}
+        className={cn(
+          'fixed left-0 top-0 z-40 flex h-dvh w-64 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-200 md:translate-x-0',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        {/* Logo */}
+        <div className="flex items-center justify-between border-b border-sidebar-border p-4">
               <Link href="/" className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center glow-primary-sm">
                   <Sparkles className="w-5 h-5 text-primary" />
-                </div>
+        </div>
                 <span className="text-lg font-semibold text-foreground">AgenticAI</span>
               </Link>
               <ThemeToggle />
             </div>
 
-            {/* Workspace Selector */}
-            <div className="p-3 border-b border-sidebar-border">
+        {/* Workspace Selector */}
+        <div className="border-b border-sidebar-border p-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -272,6 +276,19 @@ export function GlobalSidebar() {
                     <ChevronRight className="w-4 h-4" />
                   )}
                 </button>
+
+                <Link
+                  href="/workflows"
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                    pathname === '/workflows'
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                      : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                  )}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  All workflows
+                </Link>
 
                 <AnimatePresence>
                   {workflowsExpanded && (
@@ -549,9 +566,7 @@ export function GlobalSidebar() {
                 </div>
               </div>
             </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
+      </aside>
 
       {/* Workspace delete confirmation */}
       <AlertDialog open={!!deleteWorkspaceId} onOpenChange={(o) => !o && setDeleteWorkspaceId(null)}>

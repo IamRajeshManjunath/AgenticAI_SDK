@@ -70,13 +70,17 @@ def minimal_workflow(valid_agent_config) -> dict:
 class TestLLMConfig:
     def test_valid_config(self, valid_llm_config):
         config = LLMConfig(**valid_llm_config)
-        assert config.provider.value == "openai"
+        assert config.provider == "openai"
         assert config.model_name == "gpt-4o"
         assert config.max_retries == 3
         assert config.request_timeout == 60.0
 
-    def test_invalid_provider(self, valid_llm_config):
-        valid_llm_config["provider"] = "invalid_provider"
+    def test_registered_plugin_provider_is_accepted(self, valid_llm_config):
+        valid_llm_config["provider"] = "custom_provider"
+        assert LLMConfig(**valid_llm_config).provider == "custom_provider"
+
+    def test_empty_provider(self, valid_llm_config):
+        valid_llm_config["provider"] = ""
         with pytest.raises(ValidationError):
             LLMConfig(**valid_llm_config)
 

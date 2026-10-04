@@ -109,12 +109,12 @@ export default function TemplateDetailPage() {
                   <CardTitle className="text-sm font-medium">Requirements</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm space-y-2">
-                  {template.workflow.rag_sources && (template.workflow.rag_sources as Array<Record<string, unknown>>).length > 0 && (
+                  {Array.isArray(template.workflow.rag_sources) && template.workflow.rag_sources.length > 0 && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <AlertTriangle className="w-4 h-4 text-yellow-500" /> Requires Qdrant vector DB
                     </div>
                   )}
-                  {template.workflow.tools && (template.workflow.tools as Array<Record<string, unknown>>).length > 0 && (
+                  {Array.isArray(template.workflow.tools) && template.workflow.tools.length > 0 && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <AlertTriangle className="w-4 h-4 text-yellow-500" /> Requires API connections
                     </div>

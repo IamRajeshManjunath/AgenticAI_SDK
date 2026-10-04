@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { useWorkflowStore } from '@/lib/store'
-import { useAuthStore } from '@/lib/auth-store'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -32,8 +31,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { WorkflowBuilder } from '@/components/workflow-builder'
 import type { ProposalResponse } from '@/lib/types'
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+import { api } from '@/lib/api'
+import { normalizeWorkflowConfig } from '@/lib/workflow-adapters'
 
 type ChatMessage = {
   id: string
@@ -46,7 +45,6 @@ export default function AgentPage() {
   const router = useRouter()
   const { toast } = useToast()
   const { createWorkflow, setActiveWorkflow } = useWorkflowStore()
-  const token = useAuthStore((s) => s.token)
 
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -69,10 +67,6 @@ export default function AgentPage() {
   const [deployedApiKey, setDeployedApiKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const authHeaders: Record<string, string> = token
-    ? { 'Authorization': `Bearer ${token}` }
-    : {}
-
   const sendMessage = async () => {
     if (!prompt.trim() || isGenerating) return
 
@@ -89,22 +83,14 @@ export default function AgentPage() {
     setCompilationMessage('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/workflow/master/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ prompt }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to generate workflow proposal')
-      }
-
-      const data = await response.json()
-      if (!data.success || !data.proposal) {
+      const response = await api.master.generate(prompt)
+      if (response.error) throw new Error(response.error)
+      const proposalValue = response.data?.proposal
+      if (!response.data?.success || !isProposalResponse(proposalValue)) {
         throw new Error('Invalid response from Master Agent')
       }
 
-      const proposalData = data.proposal as ProposalResponse
+      const proposalData = proposalValue
       setProposal(proposalData)
       setProposalJsonStr(JSON.stringify(proposalData, null, 2))
       setIsProposalOpen(true)
@@ -147,14 +133,15 @@ export default function AgentPage() {
     setCompilationStatus('idle')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/workflow/master/compile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify(parsedJson),
-      })
-
-      const data = await response.json()
-      if (response.ok && data.success) {
+      const response = await api.master.compile(parsedJson)
+      if (response.error) {
+        setCompilationStatus('failed')
+        setCompilationMessage(response.error)
+        toast({ title: 'Compilation Failed', description: response.error, variant: 'destructive' })
+        return
+      }
+      const data = response.data
+      if (data?.success) {
         setCompilationStatus('success')
         setCompilationMessage('Workflow validated and compiled successfully')
         if (data.api_key) {
@@ -163,8 +150,8 @@ export default function AgentPage() {
         toast({ title: 'Compilation Passed', description: 'Workflow is ready to deploy' })
       } else {
         setCompilationStatus('failed')
-        setCompilationMessage(data.detail || 'Workflow validation failed')
-        toast({ title: 'Compilation Failed', description: data.detail || 'SDK compiler rejected the proposal', variant: 'destructive' })
+        setCompilationMessage(data?.message || 'Workflow validation failed')
+        toast({ title: 'Compilation Failed', description: data?.message || 'SDK compiler rejected the proposal', variant: 'destructive' })
       }
     } catch (err) {
       setCompilationStatus('failed')
@@ -174,7 +161,7 @@ export default function AgentPage() {
     }
   }
 
-  const handleDeploy = () => {
+  const handleDeploy = async () => {
     if (compilationStatus !== 'success') {
       toast({ title: 'Compile First', description: 'Please compile the workflow before deploying', variant: 'destructive' })
       return
@@ -182,7 +169,13 @@ export default function AgentPage() {
 
     try {
       const parsedJson = JSON.parse(proposalJsonStr)
-      const frontendWf = mapProposalToWorkflow(parsedJson)
+      const frontendWf = normalizeWorkflowConfig(parsedJson)
+      if (!frontendWf) throw new Error('The compiled proposal could not be converted into an editable workflow.')
+      const persisted = await api.crud.updateWorkflow(frontendWf.id, {
+        name: frontendWf.name,
+        config: frontendWf,
+      })
+      if (persisted.error) throw new Error(persisted.error)
 
       useWorkflowStore.setState((state) => ({
         workflows: { ...state.workflows, [frontendWf.id]: frontendWf },
@@ -417,75 +410,11 @@ export default function AgentPage() {
   )
 }
 
-function mapProposalToWorkflow(proposal: ProposalResponse) {
-  const defaultLLM = {
-    provider: 'openai' as const,
-    model_name: 'gpt-4o',
-    temperature: 0.7,
-    max_tokens: 4096,
-    api_key_env_var: 'OPENAI_API_KEY',
-  }
-
-  return {
-    id: proposal.workflow_id,
-    name: proposal.name || 'Generated Workflow',
-    description: proposal.description || '',
-    entry_point: proposal.entry_point || 'coordinator',
-    agents: (proposal.agents || []).map((agent) => ({
-      agent_id: agent.agent_id,
-      role: agent.role || 'Assistant',
-      prompt_template: {
-        template_string: agent.prompt_template?.template_string || 'Process tasks.',
-        input_variables: agent.prompt_template?.input_variables || [],
-      },
-      llm_config: {
-        provider: agent.llm?.provider || defaultLLM.provider,
-        model_name: agent.llm?.model_name || defaultLLM.model_name,
-        temperature: agent.llm?.temperature ?? defaultLLM.temperature,
-        max_tokens: agent.llm?.max_tokens ?? defaultLLM.max_tokens,
-        api_key_env_var: agent.llm?.api_key_env_var || defaultLLM.api_key_env_var,
-      },
-      orchestration_mode: agent.topology?.orchestration_mode === 'agent_driven' ? ('agent-driven' as const) : ('model-driven' as const),
-      tools: agent.tools || [],
-      rag_sources: agent.rag_sources || [],
-      sub_agents: agent.sub_agents || [],
-      consensus_config: agent.consensus_config ? {
-        enabled: agent.consensus_config.enabled ?? false,
-        num_instances: agent.consensus_config.instances ?? 3,
-        agreement_threshold: agent.consensus_config.threshold ?? 0.7,
-      } : undefined,
-    })),
-    edges: (proposal.edges || []).map((edge, index) => ({
-      id: `edge_${index}_${Math.random().toString(36).substring(2, 5)}`,
-      source: edge.source,
-      target: edge.target,
-      condition: typeof edge.condition === 'string'
-        ? edge.condition
-        : edge.condition?.value !== undefined
-          ? `state["${edge.condition.field}"] ${edge.condition.operator} "${edge.condition.value}"`
-          : undefined,
-    })),
-    global_tools: (proposal.tools || []).map((tool) => ({
-      id: tool.tool_id,
-      name: tool.name,
-      description: tool.description || '',
-      type: tool.type === 'rest_api' ? ('api' as const) : tool.type === 'mcp' ? ('mcp' as const) : ('function' as const),
-      api_endpoint: tool.config?.endpoint as string | undefined,
-      method: tool.config?.method as string | undefined,
-      api_key_env_var: tool.config?.api_key_env_var as string | undefined,
-    })),
-    global_rag_sources: (proposal.rag_sources || []).map((rag) => ({
-      id: rag.rag_id,
-      provider: (rag.provider || 'qdrant') as any,
-      name: rag.collection_name || 'kb_collection',
-      uri: rag.connection_uri as string | undefined,
-      api_key_env_var: rag.api_key_env_var as string | undefined,
-      embedding_model: rag.embedding_model || 'text-embedding-3-small',
-      top_k: rag.top_k ?? 3,
-      similarity_threshold: rag.similarity_threshold ?? 0.7,
-      hybrid_search: true,
-    })),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }
+function isProposalResponse(value: unknown): value is ProposalResponse {
+  return typeof value === 'object' &&
+    value !== null &&
+    'workflow_id' in value &&
+    typeof value.workflow_id === 'string' &&
+    'agents' in value &&
+    Array.isArray(value.agents)
 }

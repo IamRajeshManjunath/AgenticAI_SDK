@@ -14,7 +14,7 @@ export interface ToolConfig {
 
 export interface RAGSourceConfig {
   id: string
-  provider: 'pinecone' | 'weaviate' | 'qdrant' | 'chroma' | 'milvus' | 'file'
+  provider: RAGVectorProvider
   name?: string
   uri?: string
   api_key_env_var?: string
@@ -25,8 +25,19 @@ export interface RAGSourceConfig {
   file_path?: string
 }
 
+export const RAG_VECTOR_PROVIDER_OPTIONS = [
+  { value: 'qdrant', label: 'Qdrant' },
+  { value: 'pinecone', label: 'Pinecone' },
+  { value: 'pgvector', label: 'PostgreSQL (pgvector)' },
+  { value: 'chromadb', label: 'ChromaDB' },
+  { value: 'fiaas', label: 'FIAAS' },
+  { value: 'universal', label: 'Universal connector' },
+] as const
+
+export type RAGVectorProvider = typeof RAG_VECTOR_PROVIDER_OPTIONS[number]['value']
+
 export interface LLMConfig {
-  provider: 'openai' | 'anthropic' | 'google' | 'azure' | 'local'
+  provider: string
   model_name: string
   temperature: number
   max_tokens: number
@@ -86,6 +97,8 @@ export interface AgentNodeConfig {
   consensus_config?: ConsensusConfig
   fallback_configs?: FallbackConfig[]
   interruption_point?: boolean
+  input_schema?: Record<string, unknown>
+  output_schema?: Record<string, unknown>
 }
 
 export interface EdgeCondition {

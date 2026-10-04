@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuthStore } from '@/lib/auth-store'
+import { RAG_VECTOR_PROVIDER_OPTIONS } from '@/lib/types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
@@ -215,11 +216,12 @@ export default function RAGPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="qdrant">Qdrant</SelectItem>
-                        <SelectItem value="pinecone">Pinecone</SelectItem>
-                        <SelectItem value="chroma">Chroma</SelectItem>
-                        <SelectItem value="weaviate">Weaviate</SelectItem>
-                        <SelectItem value="milvus">Milvus</SelectItem>
+                        {!RAG_VECTOR_PROVIDER_OPTIONS.some(({ value }) => value === source.provider) && (
+                          <SelectItem value={source.provider}>{source.provider} (legacy value)</SelectItem>
+                        )}
+                        {RAG_VECTOR_PROVIDER_OPTIONS.map((provider) => (
+                          <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

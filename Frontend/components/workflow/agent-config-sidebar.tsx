@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   Grip,
+  Braces,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
@@ -44,6 +45,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import type { AgentNodeConfig, ReasoningStep, FallbackConfig, LLMConfig, RAGSourceConfig } from '@/lib/types'
+import { RAG_VECTOR_PROVIDER_OPTIONS } from '@/lib/types'
+import { providersWithCurrent, useChatModelProviders } from '@/lib/provider-options'
 
 interface AgentConfigSidebarProps {
   workflowId: string
@@ -62,6 +65,7 @@ export function AgentConfigSidebar({
   const agent = workflow?.agents.find((a) => a.agent_id === agentId)
 
   const otherAgents = workflow?.agents.filter((a) => a.agent_id !== agentId) || []
+  const { providers: chatModelProviders, error: providersError } = useChatModelProviders()
   const [agentIdDraft, setAgentIdDraft] = useState(agent?.agent_id || '')
 
   useEffect(() => {
@@ -260,6 +264,26 @@ export function AgentConfigSidebar({
             </div>
           </Section>
 
+          {/* Custom JSON Schema Contracts */}
+          <Section title="Input & Output Schemas" icon={<Braces className="w-4 h-4" />}>
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Optional JSON Schema contracts. Input validates the input message, scratchpad, and retrieved context;
+                output validates the agent&apos;s final response parsed as JSON.
+              </p>
+              <AgentJsonSchemaEditor
+                label="Input JSON Schema"
+                value={agent.input_schema}
+                onChange={(input_schema) => handleUpdate({ input_schema })}
+              />
+              <AgentJsonSchemaEditor
+                label="Output JSON Schema"
+                value={agent.output_schema}
+                onChange={(output_schema) => handleUpdate({ output_schema })}
+              />
+            </div>
+          </Section>
+
           {/* LLM Settings Section */}
           <Section title="LLM Settings" icon={<Cpu className="w-4 h-4" />}>
             <div className="space-y-4">
@@ -281,13 +305,12 @@ export function AgentConfigSidebar({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="anthropic">Anthropic</SelectItem>
-                      <SelectItem value="google">Google</SelectItem>
-                      <SelectItem value="azure">Azure</SelectItem>
-                      <SelectItem value="local">Local</SelectItem>
+                      {providersWithCurrent(chatModelProviders, agent.llm_config?.provider || 'openai').map((provider) => (
+                        <SelectItem key={provider.provider} value={provider.provider}>{provider.name}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  {providersError && <p className="mt-1 text-xs text-destructive">{providersError}</p>}
                 </div>
                 <div>
                   <Label>Model Name</Label>
@@ -459,7 +482,7 @@ export function AgentConfigSidebar({
                     size="sm"
                     onClick={() => {
                       const id = addGlobalRAGSource({
-                        provider: 'pinecone',
+                        provider: 'qdrant',
                         uri: '',
                         api_key_env_var: '',
                         embedding_model: 'text-embedding-3-small',
@@ -503,12 +526,12 @@ export function AgentConfigSidebar({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="pinecone">Pinecone</SelectItem>
-                                <SelectItem value="weaviate">Weaviate</SelectItem>
-                                <SelectItem value="qdrant">Qdrant</SelectItem>
-                                <SelectItem value="chroma">Chroma</SelectItem>
-                                <SelectItem value="milvus">Milvus</SelectItem>
-                                <SelectItem value="file">File</SelectItem>
+                                {!RAG_VECTOR_PROVIDER_OPTIONS.some(({ value }) => value === source.provider) && (
+                                  <SelectItem value={source.provider}>{source.provider} (legacy value)</SelectItem>
+                                )}
+                                {RAG_VECTOR_PROVIDER_OPTIONS.map((provider) => (
+                                  <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -542,14 +565,6 @@ export function AgentConfigSidebar({
                               className="h-7 text-xs font-mono"
                               placeholder="API Key Env Var"
                             />
-                            {source.provider === 'file' && (
-                              <Input
-                                value={source.file_path || ''}
-                                onChange={(e) => updateGlobalRAGSource(source.id, { file_path: e.target.value })}
-                                className="h-7 text-xs font-mono"
-                                placeholder="File path"
-                              />
-                            )}
                             <Input
                               value={source.embedding_model}
                               onChange={(e) => updateGlobalRAGSource(source.id, { embedding_model: e.target.value })}
@@ -925,6 +940,64 @@ interface SectionProps {
   children: React.ReactNode
 }
 
+interface AgentJsonSchemaEditorProps {
+  label: string
+  value?: Record<string, unknown>
+  onChange: (value?: Record<string, unknown>) => void
+}
+
+function AgentJsonSchemaEditor({ label, value, onChange }: AgentJsonSchemaEditorProps) {
+  const [text, setText] = useState(() => value ? JSON.stringify(value, null, 2) : '')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setText(value ? JSON.stringify(value, null, 2) : '')
+    setError(null)
+  }, [value])
+
+  const applySchema = () => {
+    if (!text.trim()) {
+      setError(null)
+      onChange(undefined)
+      return
+    }
+    try {
+      const parsed: unknown = JSON.parse(text)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setError('A JSON Schema must be a JSON object.')
+        return
+      }
+      setError(null)
+      onChange(parsed as Record<string, unknown>)
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : 'Invalid JSON.')
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={applySchema}
+        className="min-h-36 font-mono text-xs"
+        placeholder={'{\n  "type": "object",\n  "properties": {}\n}'}
+        spellCheck={false}
+        aria-label={label}
+        aria-invalid={Boolean(error)}
+      />
+      {error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Leave empty to disable. JSON Schema is validated by the backend before compilation.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Section({ title, icon, children }: SectionProps) {
   return (
     <div className="space-y-4">
@@ -1010,6 +1083,7 @@ interface FallbackEditorProps {
 }
 
 function FallbackEditor({ fallbacks, onChange }: FallbackEditorProps) {
+  const { providers: chatModelProviders, error: providersError } = useChatModelProviders()
   const handleAdd = () => {
     onChange([
       ...fallbacks,
@@ -1072,13 +1146,12 @@ function FallbackEditor({ fallbacks, onChange }: FallbackEditorProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
-                  <SelectItem value="google">Google</SelectItem>
-                  <SelectItem value="azure">Azure</SelectItem>
-                  <SelectItem value="local">Local</SelectItem>
+                  {providersWithCurrent(chatModelProviders, fallback.llm_config.provider).map((provider) => (
+                    <SelectItem key={provider.provider} value={provider.provider}>{provider.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {providersError && <p className="mt-1 text-xs text-destructive">{providersError}</p>}
             </div>
             <div>
               <Label className="text-xs">Model</Label>

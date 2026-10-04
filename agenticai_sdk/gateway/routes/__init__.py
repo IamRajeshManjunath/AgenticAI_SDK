@@ -22,6 +22,7 @@ from .runs import router as runs_router
 from .workspaces import router as workspaces_router
 from .evaluations import router as evaluations_router
 from .audit import router as audit_router
+from .plugins import router as plugins_router
 
 # Ordered list of all route modules for app factory iteration
 route_modules: list[APIRouter] = [
@@ -38,6 +39,7 @@ route_modules: list[APIRouter] = [
     workspaces_router,
     evaluations_router,
     audit_router,
+    plugins_router,
 ]
 
 __all__ = [
@@ -55,4 +57,5 @@ __all__ = [
     "workspaces_router",
     "evaluations_router",
     "audit_router",
+    "plugins_router",
 ]

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Search, Plus, FileText, Settings, RefreshCw, Download, Trash2, Edit, ExternalLink, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,59 +16,36 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-
-export interface SkillMetadata {
-  name: string;
-  description: string;
-  source: "local" | "git" | "s3" | "fleet";
-  modified_at: string;
-}
-
-interface SkillManifest {
-  name: string;
-  description: string;
-  frontmatter: Record<string, any>;
-  content: string;
-  files: Record<string, string>;
-  source: string;
-  modified_at: string;
-}
-
-const mockSkills: SkillMetadata[] = [
-  { name: "web-research", description: "Search the web and synthesize findings", source: "local", modified_at: "2024-01-15T10:00:00Z" },
-  { name: "code-generation", description: "Generate code from specifications", source: "local", modified_at: "2024-01-14T15:30:00Z" },
-  { name: "document-analysis", description: "Analyze documents for insights", source: "local", modified_at: "2024-01-13T09:00:00Z" },
-  { name: "data-processing", description: "Process and transform data", source: "local", modified_at: "2024-01-12T14:00:00Z" },
-  { name: "api-integration", description: "Integrate with external APIs", source: "local", modified_at: "2024-01-11T11:00:00Z" },
-  { name: "reasoning", description: "Multi-step reasoning and problem solving", source: "local", modified_at: "2024-01-10T16:00:00Z" },
-  { name: "planning", description: "Create execution plans for complex tasks", source: "local", modified_at: "2024-01-09T10:00:00Z" },
-];
+import { skillsApi, type SkillManifest, type SkillMetadata } from "@/lib/api";
 
 export function SkillsDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSource, setSelectedSource] = useState<string>("all");
   const [selectedSkill, setSelectedSkill] = useState<SkillManifest | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [skills, setSkills] = useState<SkillMetadata[]>(mockSkills);
-  const [loading, setLoading] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<SkillManifest | null>(null);
+  const [skills, setSkills] = useState<SkillMetadata[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSkills();
-  }, []);
-
-  const fetchSkills = async () => {
+  const fetchSkills = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      // In production, this would call the API
-      // const response = await fetch("/api/v1/skills");
-      // const data = await response.json();
-      // setSkills(data.skills);
+      const response = await skillsApi.list();
+      if (response.error) throw new Error(response.error);
+      setSkills(response.data?.skills ?? []);
     } catch (error) {
-      console.error("Failed to fetch skills:", error);
+      setError(error instanceof Error ? error.message : "Failed to load skills.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchSkills();
+  }, [fetchSkills]);
 
   const filteredSkills = skills.filter(skill => {
     if (selectedSource !== "all" && skill.source !== selectedSource) return false;
@@ -78,38 +55,89 @@ export function SkillsDashboard() {
   });
 
   const handleView = async (skillName: string) => {
-    // In production: fetch full skill from API
-    // const response = await fetch(`/api/v1/skills/${skillName}`);
-    // const skill = await response.json();
-    // setSelectedSkill(skill);
-    
-    // Mock data for demo
-    setSelectedSkill({
-      name: skillName,
-      description: mockSkills.find(s => s.name === skillName)?.description || "",
-      frontmatter: { name: skillName, description: "", license: "MIT" },
-      content: `# ${skillName}\n\nSkill instructions would go here...`,
-      files: {},
-      source: "local",
-      modified_at: new Date().toISOString(),
-    });
+    setError(null);
+    const response = await skillsApi.get(skillName);
+    if (response.error || !response.data) {
+      setError(response.error || `Skill "${skillName}" could not be loaded.`);
+      return;
+    }
+    setSelectedSkill(response.data);
   };
 
-  const handleCreate = async () => {
-    // In production: POST to /api/v1/skills
+  const handleSave = async (data: { name: string; frontmatter: Record<string, unknown>; content: string }) => {
+    setError(null);
+    const response = editingSkill
+      ? await skillsApi.update(editingSkill.name, { frontmatter: data.frontmatter, content: data.content })
+      : await skillsApi.create(data);
+    if (response.error) {
+      setError(response.error);
+      return;
+    }
+    setStatusMessage(`Skill "${data.name}" ${editingSkill ? "updated" : "created"}.`);
     setIsCreating(false);
-    fetchSkills();
+    setEditingSkill(null);
+    await fetchSkills();
   };
 
   const handleDelete = async (skillName: string) => {
     if (!confirm(`Delete skill "${skillName}"?`)) return;
-    // In production: DELETE /api/v1/skills/${skillName}
-    setSkills(prev => prev.filter(s => s.name !== skillName));
+    setError(null);
+    const response = await skillsApi.delete(skillName);
+    if (response.error) {
+      setError(response.error);
+      return;
+    }
+    setStatusMessage(`Skill "${skillName}" deleted.`);
+    await fetchSkills();
   };
 
   const handleValidate = async (skillName: string) => {
-    // In production: POST /api/v1/skills/${skillName}/validate
-    alert(`Validation would run for ${skillName}`);
+    setError(null);
+    const response = await skillsApi.validate(skillName);
+    if (response.error || !response.data) {
+      setError(response.error || `Skill "${skillName}" could not be validated.`);
+      return;
+    }
+    setStatusMessage(response.data.valid
+      ? `Skill "${skillName}" is valid.`
+      : `Skill "${skillName}" is invalid: ${response.data.errors.join("; ")}`);
+  };
+
+  const handleReload = async () => {
+    setError(null);
+    const response = await skillsApi.reload();
+    if (response.error || !response.data) {
+      setError(response.error || "Skills could not be reloaded.");
+      return;
+    }
+    setStatusMessage(`Reloaded ${response.data.reloaded.length} skill(s).`);
+    await fetchSkills();
+  };
+
+  const handleSync = async () => {
+    setError(null);
+    const response = await skillsApi.sync();
+    if (response.error || !response.data) {
+      setError(response.error || "Remote skills could not be synchronized.");
+      return;
+    }
+    if (response.data.failed.length) {
+      setError(`Some remote sources failed to sync: ${response.data.failed.join("; ")}`);
+    } else {
+      setStatusMessage(`Synchronized ${response.data.synced.length} skill(s).`);
+    }
+    await fetchSkills();
+  };
+
+  const handleEdit = async (skillName: string) => {
+    setError(null);
+    const response = await skillsApi.get(skillName);
+    if (response.error || !response.data) {
+      setError(response.error || `Skill "${skillName}" could not be loaded.`);
+      return;
+    }
+    setEditingSkill(response.data);
+    setIsCreating(true);
   };
 
   return (
@@ -119,25 +147,36 @@ export function SkillsDashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Skills</h1>
           <p className="text-muted-foreground">Manage Deep Agent skills (SKILL.md files)</p>
         </div>
-        <Dialog open={isCreating} onOpenChange={setIsCreating}>
+        <Dialog open={isCreating} onOpenChange={(open) => {
+          setIsCreating(open);
+          if (!open) setEditingSkill(null);
+        }}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={() => setEditingSkill(null)}>
               <Plus className="h-4 w-4 mr-2" />
               New Skill
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl">
             <DialogHeader>
-              <DialogTitle>Create New Skill</DialogTitle>
+              <DialogTitle>{editingSkill ? `Edit ${editingSkill.name}` : "Create New Skill"}</DialogTitle>
             </DialogHeader>
-            <SkillEditor onSubmit={handleCreate} onCancel={() => setIsCreating(false)} />
+            <SkillEditor
+              key={editingSkill?.name ?? "new"}
+              initialSkill={editingSkill ?? undefined}
+              onSubmit={handleSave}
+              onCancel={() => { setIsCreating(false); setEditingSkill(null); }}
+            />
           </DialogContent>
         </Dialog>
-        <Button variant="outline" onClick={() => { /* refresh */ }}>
+        <Button variant="outline" onClick={() => void handleReload()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
       </div>
+
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {statusMessage && <p role="status" className="text-sm text-muted-foreground">{statusMessage}</p>}
 
       {/* Filters */}
       <Card className="border-border">
@@ -164,7 +203,7 @@ export function SkillsDashboard() {
                 <SelectItem value="fleet">Fleet</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => { /* sync remotes */ }}>
+            <Button variant="outline" onClick={() => void handleSync()}>
               <Download className="h-4 w-4 mr-2" />
               Sync Remotes
             </Button>
@@ -178,10 +217,12 @@ export function SkillsDashboard() {
           <CardTitle>Skills ({filteredSkills.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredSkills.length === 0 ? (
+          {loading ? (
+            <div className="py-12 text-center text-muted-foreground">Loading skills…</div>
+          ) : filteredSkills.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-              <p>No skills found</p>
+              <p>{error ? "Skills are unavailable" : "No skills found"}</p>
               <p className="text-sm">Click "New Skill" to create your first skill</p>
             </div>
           ) : (
@@ -213,6 +254,9 @@ export function SkillsDashboard() {
                         <div className="flex items-center gap-1">
                           <Button variant="ghost" size="icon" onClick={() => handleView(skill.name)} title="View">
                             <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(skill.name)} title="Edit">
+                            <Edit className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => handleValidate(skill.name)} title="Validate">
                             <Settings className="h-4 w-4" />
@@ -333,24 +377,42 @@ function SkillViewer({ skill, onClose }: { skill: SkillManifest; onClose: () => 
   );
 }
 
-function SkillEditor({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCancel: () => void }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [license, setLicense] = useState("MIT");
-  const [content, setContent] = useState("");
-  const [frontmatter, setFrontmatter] = useState(JSON.stringify({ name: "", description: "", license: "MIT" }, null, 2));
+function SkillEditor({
+  initialSkill,
+  onSubmit,
+  onCancel,
+}: {
+  initialSkill?: SkillManifest
+  onSubmit: (data: { name: string; frontmatter: Record<string, unknown>; content: string }) => Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(String(initialSkill?.frontmatter.name ?? initialSkill?.name ?? ""));
+  const [description, setDescription] = useState(String(initialSkill?.frontmatter.description ?? initialSkill?.description ?? ""));
+  const [license, setLicense] = useState(String(initialSkill?.frontmatter.license ?? "MIT"));
+  const [content, setContent] = useState(initialSkill?.content ?? "");
+  const [frontmatter, setFrontmatter] = useState(JSON.stringify(initialSkill?.frontmatter ?? {}, null, 2));
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const fm = JSON.parse(frontmatter);
-      if (!fm.name || !fm.description) {
+      const customFrontmatter: unknown = JSON.parse(frontmatter);
+      if (!customFrontmatter || typeof customFrontmatter !== "object" || Array.isArray(customFrontmatter)) {
+        setError("Frontmatter must be a JSON object");
+        return;
+      }
+      if (!name.trim() || !description.trim()) {
         setError("Name and description are required");
         return;
       }
-      onSubmit({ name: fm.name, frontmatter: fm, content });
-    } catch (err) {
+      const metadata = {
+        ...customFrontmatter,
+        name: name.trim(),
+        description: description.trim(),
+        license: license.trim(),
+      };
+      await onSubmit({ name: metadata.name as string, frontmatter: metadata, content });
+    } catch {
       setError("Invalid frontmatter JSON");
     }
   };
@@ -366,6 +428,7 @@ function SkillEditor({ onSubmit, onCancel }: { onSubmit: (data: any) => void; on
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="my-skill"
+            readOnly={Boolean(initialSkill)}
             required
           />
         </div>
@@ -386,12 +449,13 @@ function SkillEditor({ onSubmit, onCancel }: { onSubmit: (data: any) => void; on
       </div>
 
       <div>
-        <Label>Frontmatter (JSON)</Label>
+        <Label>Additional Frontmatter (JSON)</Label>
         <Textarea
           value={frontmatter}
           onChange={e => setFrontmatter(e.target.value)}
           className="font-mono text-sm"
           rows={6}
+          placeholder="{}"
         />
       </div>
 
@@ -408,7 +472,7 @@ function SkillEditor({ onSubmit, onCancel }: { onSubmit: (data: any) => void; on
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button type="submit">Create Skill</Button>
+        <Button type="submit">{initialSkill ? "Save Changes" : "Create Skill"}</Button>
       </DialogFooter>
     </form>
   );

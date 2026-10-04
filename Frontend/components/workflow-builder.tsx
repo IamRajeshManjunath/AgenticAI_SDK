@@ -11,6 +11,7 @@ import {
   Layout,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { RAG_VECTOR_PROVIDER_OPTIONS } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -290,9 +291,12 @@ function RagSection({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="qdrant">Qdrant</SelectItem>
-                <SelectItem value="pinecone">Pinecone</SelectItem>
-                <SelectItem value="chroma">Chroma</SelectItem>
+                {!RAG_VECTOR_PROVIDER_OPTIONS.some(({ value }) => value === rag.provider) && (
+                  <SelectItem value={rag.provider}>{rag.provider} (legacy value)</SelectItem>
+                )}
+                {RAG_VECTOR_PROVIDER_OPTIONS.map((provider) => (
+                  <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button variant="ghost" size="sm" onClick={() => removeRag(i)}>

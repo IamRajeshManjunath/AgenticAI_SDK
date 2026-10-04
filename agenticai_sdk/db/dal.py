@@ -21,17 +21,27 @@ from agenticai_sdk.db.models import (
 class DALEncryptor:
     """Symmetric encryption helper for securing sensitive database payloads."""
     def __init__(self, key: Optional[str] = None):
-        # Generate or load a consistent key based on environment for safety
-        self.key = key or os.getenv("AGENTICAI_ENCRYPTION_KEY")
-        if not self.key:
-            # Fallback for testing/local-dev
-            self.key = base64.urlsafe_b64encode(b"agenticai_platform_master_32bytes_")
-        elif len(self.key) != 44: # Standard Fernet key base64 length
-            # Normalize to safe 32-byte hash
-            import hashlib
-            h = hashlib.sha256(self.key.encode()).digest()
-            self.key = base64.urlsafe_b64encode(h)
-        self.fernet = Fernet(self.key)
+        configured_key = (
+            key
+            or os.getenv("SECRETS_ENCRYPTION_KEY")
+            or os.getenv("AGENTICAI_ENCRYPTION_KEY")
+        )
+        environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
+        if not configured_key and environment in {"production", "prod"}:
+            raise RuntimeError("Production database encryption requires SECRETS_ENCRYPTION_KEY.")
+
+        raw_key = configured_key or "dev-secret-key-change-in-production"
+        if len(raw_key) == 44:
+            try:
+                self.fernet = Fernet(raw_key.encode("utf-8"))
+                return
+            except ValueError:
+                pass
+
+        import hashlib
+
+        encoded_key = base64.urlsafe_b64encode(hashlib.sha256(raw_key.encode("utf-8")).digest())
+        self.fernet = Fernet(encoded_key)
 
     def encrypt(self, plain_text: str) -> str:
         return self.fernet.encrypt(plain_text.encode()).decode()

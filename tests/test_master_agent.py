@@ -11,10 +11,11 @@ from Master_agent.context_loader import AgentContextLoader
 
 
 @pytest.fixture(autouse=True)
-def _use_temp_db(tmp_path):
+def _use_temp_db(tmp_path, monkeypatch):
     """Force all tests to use a fresh temporary SQLite database."""
     db_path = tmp_path / "test.db"
     os.environ["AGENTICAI_DB_URL"] = f"sqlite:///{db_path}"
+    monkeypatch.setenv("AGENTICAI_DB_CONFIG", str(tmp_path / ".agenticai_db_config"))
     from agenticai_sdk.db.database import reset_db
     reset_db(f"sqlite:///{db_path}")
     yield

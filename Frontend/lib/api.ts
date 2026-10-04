@@ -6,11 +6,15 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/a
 interface ApiResponse<T> {
   data?: T
   error?: string
+  status?: number
 }
 
 interface WorkflowRunResponse {
-  trace_id: string
-  status: 'started' | 'running' | 'completed' | 'failed'
+  run_id: string
+  thread_id: string
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
+  status_url: string
+  events_url: string
 }
 
 interface HITLApprovalRequest {
@@ -51,6 +55,19 @@ interface ConfigSchemaResponse {
   type: string
   properties: Record<string, unknown>
   required: string[]
+}
+
+export interface SkillMetadata {
+  name: string
+  description: string
+  source: 'local' | 'git' | 's3' | 'fleet'
+  modified_at: string
+}
+
+export interface SkillManifest extends SkillMetadata {
+  frontmatter: Record<string, unknown>
+  content: string
+  files: Record<string, string>
 }
 
 // Token refresh state
@@ -139,7 +156,7 @@ async function fetchApi<T>(
 
     if (!response.ok) {
       const error = await response.text()
-      return { error: error || `HTTP error ${response.status}` }
+      return { error: error || `HTTP error ${response.status}`, status: response.status }
     }
 
     if (response.status === 204) {
@@ -159,10 +176,10 @@ export const workflowApi = {
     workflow: WorkflowSchema,
     inputMessage: string
   ): Promise<ApiResponse<WorkflowRunResponse>> {
-    return fetchApi<WorkflowRunResponse>('/workflow/run', {
+    return fetchApi<WorkflowRunResponse>('/runs', {
       method: 'POST',
       body: JSON.stringify({
-        workflow_schema: workflow,
+        workflow_id: workflow.id,
         input_message: inputMessage,
       }),
     })
@@ -176,6 +193,10 @@ export const workflowApi = {
       method: 'POST',
       body: JSON.stringify({ input_message: inputMessage }),
     })
+  },
+
+  async cancelRun(runId: string): Promise<ApiResponse<{ run_id: string; status: string }>> {
+    return fetchApi(`/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' })
   },
 
   streamExecution(
@@ -209,6 +230,51 @@ export const workflowApi = {
     }
 
     return () => eventSource.close()
+  },
+}
+
+export const skillsApi = {
+  async list(): Promise<ApiResponse<{ skills: SkillMetadata[] }>> {
+    return fetchApi('/skills')
+  },
+
+  async get(name: string): Promise<ApiResponse<SkillManifest>> {
+    return fetchApi(`/skills/${encodeURIComponent(name)}`)
+  },
+
+  async create(skill: {
+    name: string
+    frontmatter: Record<string, unknown>
+    content: string
+    files?: Record<string, string>
+  }): Promise<ApiResponse<SkillManifest>> {
+    return fetchApi('/skills', { method: 'POST', body: JSON.stringify(skill) })
+  },
+
+  async update(
+    name: string,
+    skill: { frontmatter?: Record<string, unknown>; content?: string; files?: Record<string, string> }
+  ): Promise<ApiResponse<SkillManifest>> {
+    return fetchApi(`/skills/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(skill),
+    })
+  },
+
+  async delete(name: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return fetchApi(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  },
+
+  async validate(name: string): Promise<ApiResponse<{ valid: boolean; errors: string[] }>> {
+    return fetchApi(`/skills/${encodeURIComponent(name)}/validate`, { method: 'POST' })
+  },
+
+  async reload(): Promise<ApiResponse<{ reloaded: string[]; failed: string[] }>> {
+    return fetchApi('/skills/reload', { method: 'POST' })
+  },
+
+  async sync(): Promise<ApiResponse<{ synced: string[]; failed: string[] }>> {
+    return fetchApi('/skills/sync', { method: 'POST' })
   },
 }
 
@@ -332,13 +398,33 @@ export const authApi = {
   },
 }
 
+export interface ChatModelProviderOption {
+  provider: string
+  name: string
+  description: string
+  type: string
+  features: {
+    stream: boolean
+    tools: boolean
+    structured_output: boolean
+    multimodal: boolean
+  }
+  docs_url: string
+}
+
+export const providerApi = {
+  async getChatModelProviders(): Promise<ApiResponse<{ providers: ChatModelProviderOption[] }>> {
+    return fetchApi<{ providers: ChatModelProviderOption[] }>('/plugins/providers?type=chat_model')
+  },
+}
+
 // Workspace / CRUD API
 export const crudApi = {
   async getWorkflows(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; config: unknown; workspace_id: string }>>> {
     return fetchApi('/workflow/workflows')
   },
 
-  async createWorkflow(data: { name: string; description?: string; config?: unknown }): Promise<ApiResponse<{ id: string; name: string }>> {
+  async createWorkflow(data: { id?: string; name: string; description?: string; config?: unknown }): Promise<ApiResponse<{ id: string; name: string; api_key?: string }>> {
     return fetchApi('/workflow/workflows', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -362,6 +448,10 @@ export const crudApi = {
 
   async getTools(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; type: string }>>> {
     return fetchApi('/workflow/tools')
+  },
+
+  async getRAGSources(): Promise<ApiResponse<Array<{ id: string; name: string; provider: string; config: unknown }>>> {
+    return fetchApi('/workflow/rag-sources')
   },
 
   async createTool(data: { name: string; description?: string; type?: string; code?: string; mcp_url?: string }): Promise<ApiResponse<{ id: string; name: string }>> {
@@ -569,10 +659,29 @@ export const dbApi = {
   },
 }
 
+export const masterApi = {
+  async generate(prompt: string): Promise<ApiResponse<{ success: boolean; proposal: unknown }>> {
+    return fetchApi('/workflow/master/generate', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    })
+  },
+
+  async compile(workflow: unknown): Promise<ApiResponse<{ success: boolean; workflow_id: string; message: string; api_key?: string }>> {
+    return fetchApi('/workflow/master/compile', {
+      method: 'POST',
+      body: JSON.stringify(workflow),
+    })
+  },
+}
+
 // Trace List API
 export const traceApi = {
   async list(): Promise<ApiResponse<TraceSummary[]>> {
-    return fetchApi<TraceSummary[]>('/observability/traces')
+    const response = await fetchApi<TraceSummary[] | { traces: TraceSummary[]; total: number }>('/observability/traces')
+    if (response.error) return { error: response.error, status: response.status }
+    if (Array.isArray(response.data)) return { data: response.data }
+    return { data: response.data?.traces ?? [] }
   },
 
   async get(workflowId: string): Promise<ApiResponse<TraceResponse>> {
@@ -646,6 +755,7 @@ export const api = {
   integrations: integrationApi,
   members: memberApi,
   db: dbApi,
+  master: masterApi,
   traces: traceApi,
   config: configApi,
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -20,7 +20,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
-import { authApi } from '@/lib/api'
+import { authApi, crudApi } from '@/lib/api'
+import { normalizeWorkflowConfig } from '@/lib/workflow-adapters'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
@@ -33,10 +34,52 @@ export default function WorkflowBuilderPage() {
   const { workflows, selectedNodeId, selectedEdgeId, setSelectedNode, setSelectedEdge } =
     useWorkflowStore()
   const workflow = workflows[workflowId]
+  const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(!workflow)
+  const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(null)
 
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
   const [generatedKey, setGeneratedKey] = useState('')
   const [generating, setGenerating] = useState(false)
+
+  useEffect(() => {
+    if (workflow) {
+      setIsLoadingWorkflow(false)
+      setWorkflowLoadError(null)
+      return
+    }
+
+    let active = true
+    setIsLoadingWorkflow(true)
+    void crudApi.getWorkflow(workflowId).then((response) => {
+      if (!active) return
+      if (response.error || !response.data) {
+        setWorkflowLoadError(response.error || 'The workflow could not be loaded.')
+        setIsLoadingWorkflow(false)
+        return
+      }
+
+      const normalized = normalizeWorkflowConfig(response.data.config, workflowId)
+      if (!normalized) {
+        setWorkflowLoadError('This saved workflow has an unsupported configuration format.')
+        setIsLoadingWorkflow(false)
+        return
+      }
+
+      useWorkflowStore.setState((state) => ({
+        workflows: { ...state.workflows, [normalized.id]: normalized },
+      }))
+      setWorkflowLoadError(null)
+      setIsLoadingWorkflow(false)
+    }).catch((error: unknown) => {
+      if (!active) return
+      setWorkflowLoadError(error instanceof Error ? error.message : 'The workflow could not be loaded.')
+      setIsLoadingWorkflow(false)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [workflow, workflowId])
 
   const handleGenerateKey = async () => {
     setGenerating(true)
@@ -79,9 +122,11 @@ export default function WorkflowBuilderPage() {
     return (
       <DashboardLayout>
         <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)]">
-          <h2 className="text-xl font-semibold mb-2">Workflow not found</h2>
+          <h2 className="text-xl font-semibold mb-2">
+            {isLoadingWorkflow ? 'Loading workflow…' : 'Workflow unavailable'}
+          </h2>
           <p className="text-muted-foreground mb-4">
-            The workflow you are looking for does not exist.
+            {workflowLoadError || 'Looking up this workflow in the active workspace.'}
           </p>
           <Button asChild>
             <Link href="/">Back to Dashboard</Link>
@@ -93,7 +138,7 @@ export default function WorkflowBuilderPage() {
 
   return (
     <DashboardLayout>
-      <div className="h-screen flex flex-col">
+      <div className="flex h-[calc(100dvh-4rem)] flex-col">
         {/* Top Bar */}
         <div className="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-4">

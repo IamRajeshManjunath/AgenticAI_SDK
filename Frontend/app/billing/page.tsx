@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import useSWR from 'swr'
 import { DashboardLayout } from '@/components/dashboard-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,7 +8,6 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { CreditCard, Check, Zap, Crown, Building2, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
-import { useToast } from '@/hooks/use-toast'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
@@ -41,9 +39,7 @@ const fetcher = (url: string) => fetch(url, {
 }).then((r) => { if (!r.ok) throw new Error('Failed to fetch'); return r.json() })
 
 export default function BillingPage() {
-  const { toast } = useToast()
   const token = useAuthStore((s) => s.token)
-  const authHeaders = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
 
   const { data: usage, isLoading: usageLoading, mutate: mutateUsage } = useSWR<UsageDTO>(
     token ? `${API_BASE_URL}/billing/usage` : null,
@@ -55,41 +51,6 @@ export default function BillingPage() {
     token ? `${API_BASE_URL}/billing/plans` : null,
     fetcher
   )
-
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
-
-  const handleUpgrade = async (priceId: string) => {
-    setCheckoutLoading(priceId)
-    try {
-      const res = await fetch(`${API_BASE_URL}/billing/create-checkout-session`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ price_id: priceId, success_url: `${window.location.origin}/billing?success=true`, cancel_url: `${window.location.origin}/billing?canceled=true` }),
-      })
-      if (!res.ok) throw new Error('Failed to create checkout')
-      const data = await res.json()
-      if (data.url) {
-        window.location.href = data.url
-      }
-    } catch (err) {
-      toast({ title: 'Error', description: String(err), variant: 'destructive' })
-    } finally {
-      setCheckoutLoading(null)
-    }
-  }
-
-  const handlePortal = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/billing/portal`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error('Failed to open portal')
-      const data = await res.json()
-      if (data.url) window.location.href = data.url
-    } catch (err) {
-      toast({ title: 'Error', description: String(err), variant: 'destructive' })
-    }
-  }
 
   if (!token) {
     return (
@@ -111,6 +72,9 @@ export default function BillingPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Billing</h1>
           <p className="text-muted-foreground mt-1">Manage your subscription and usage</p>
+        </div>
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-muted-foreground">
+          Subscription changes and the billing portal are unavailable because billing is not configured for this deployment.
         </div>
 
         {/* Current Usage */}
@@ -216,13 +180,9 @@ export default function BillingPage() {
                       <Button
                         className="w-full"
                         variant={isCurrentPlan ? 'secondary' : 'default'}
-                        disabled={isCurrentPlan || checkoutLoading === plan.stripe_price_id}
-                        onClick={() => plan.stripe_price_id && handleUpgrade(plan.stripe_price_id)}
+                        disabled
                       >
-                        {checkoutLoading === plan.stripe_price_id ? (
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        ) : null}
-                        {isCurrentPlan ? 'Current Plan' : 'Upgrade'}
+                        {isCurrentPlan ? 'Current Plan' : 'Checkout unavailable'}
                       </Button>
                     </CardContent>
                   </Card>
@@ -236,12 +196,12 @@ export default function BillingPage() {
         <Card>
           <CardHeader>
             <CardTitle>Manage Subscription</CardTitle>
-            <CardDescription>View invoices, update payment method, or cancel</CardDescription>
+            <CardDescription>The billing portal is unavailable until billing is configured.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={handlePortal} variant="outline">
+            <Button disabled variant="outline">
               <CreditCard className="w-4 h-4 mr-2" />
-              Open Billing Portal
+              Portal unavailable
             </Button>
           </CardContent>
         </Card>

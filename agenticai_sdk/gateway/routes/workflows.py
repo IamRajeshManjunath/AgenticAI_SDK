@@ -41,7 +41,7 @@ from agenticai_sdk.schemas.workflow import WorkflowSchema
 from agenticai_sdk.state.workflow_state import WorkflowState
 from agenticai_sdk.persistence import RevisionManager, RevisionConflictError, RevisionNotFoundError
 
-from master_agent.agent import StructuredMasterAgent
+from Master_agent.agent import StructuredMasterAgent
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -237,6 +237,7 @@ async def _execute_workflow(
         "next_step": None,
         "middleware_metadata": {},
         "trace_id": None,
+        "workspace_id": workspace_id,
     }
     config = {"configurable": {"thread_id": tid}}
     final_state = await app.ainvoke(initial_state, config=config)
@@ -407,7 +408,11 @@ async def run_workflow_by_id(
     if workflow_scope and workflow_scope != workflow_id:
         raise HTTPException(status_code=403, detail="API key not scoped to this workflow")
 
-    wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    workspace_id = _get_workspace_id(request)
+    wf = db.query(Workflow).filter(
+        Workflow.id == workflow_id,
+        Workflow.workspace_id == workspace_id,
+    ).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if not wf.config:

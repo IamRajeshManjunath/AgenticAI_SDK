@@ -53,9 +53,10 @@ class LLMConfig(BaseModel):
         request_timeout: Per-request timeout in seconds.
     """
 
-    provider: LLMProvider = Field(
+    provider: str = Field(
         ...,
-        description="The LLM inference provider.",
+        min_length=1,
+        description="The LLM inference provider registered in the plugin registry.",
     )
     model_name: str = Field(
         ...,

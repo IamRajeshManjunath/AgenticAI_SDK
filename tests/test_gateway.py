@@ -12,10 +12,11 @@ from agenticai_sdk.gateway.app import create_app
 
 
 @pytest.fixture(autouse=True)
-def _use_temp_db(tmp_path):
+def _use_temp_db(tmp_path, monkeypatch):
     """Force all tests to use a fresh temporary SQLite database."""
     db_path = tmp_path / "test.db"
     os.environ["AGENTICAI_DB_URL"] = f"sqlite:///{db_path}"
+    monkeypatch.setenv("AGENTICAI_DB_CONFIG", str(tmp_path / ".agenticai_db_config"))
     from agenticai_sdk.db.database import reset_db
     reset_db(f"sqlite:///{db_path}")
     yield
@@ -55,6 +56,70 @@ class TestHealthEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
+
+
+class TestObservabilityAuthorization:
+    def test_observability_requires_authentication(self, client):
+        response = client.get("/api/v1/observability/traces")
+        assert response.status_code == 401
+
+    def test_trace_queries_are_workspace_scoped(self, client):
+        email = f"trace-scope-{uuid.uuid4().hex[:8]}@example.com"
+        registration = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "strongpassword123"},
+        )
+        assert registration.status_code == 201
+        user = registration.json()["user"]
+        auth_headers = {"Authorization": f"Bearer {registration.json()['access_token']}"}
+        from agenticai_sdk.db import get_session
+        from agenticai_sdk.db.models import WorkflowTrace
+
+        db = next(get_session())
+        try:
+            db.add_all(
+                [
+                    WorkflowTrace(
+                        id="trace-current",
+                        trace_id="trace-current",
+                        workspace_id=user["default_workspace_id"],
+                        workflow_id="current-workflow",
+                        duration_ms=20,
+                        total_tokens=10,
+                        cost_usd=0.01,
+                        error_count=0,
+                        span_tree={"status": "completed"},
+                    ),
+                    WorkflowTrace(
+                        id="trace-other",
+                        trace_id="trace-other",
+                        workspace_id="another-workspace",
+                        workflow_id="other-workflow",
+                        duration_ms=900,
+                        total_tokens=900,
+                        cost_usd=99,
+                        error_count=0,
+                        span_tree={"status": "completed"},
+                    ),
+                ]
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/observability/traces", headers=auth_headers)
+        assert response.status_code == 200
+        assert [trace["trace_id"] for trace in response.json()["traces"]] == ["trace-current"]
+
+        hidden = client.get("/api/v1/observability/traces/trace-other", headers=auth_headers)
+        assert hidden.status_code == 404
+
+        health = client.get("/api/v1/observability/health", headers=auth_headers)
+        assert health.status_code == 200
+        health_data = health.json()
+        assert health_data["metrics_summary"]["total_requests"] == 1
+        assert health_data["metrics_summary"]["total_tokens"] == 10
+        assert health_data["components"]["persisted_traces"]["count"] == 1
 
 
 class TestMiddleware:

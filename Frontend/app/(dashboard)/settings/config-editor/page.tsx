@@ -1,29 +1,18 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { Download, Save, RefreshCw, Eye, CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-
-// Dynamically import Monaco Editor to avoid SSR issues
-const Editor = dynamic(() => import('@monaco-editor/react').then(mod => mod.Editor), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-[500px]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-    </div>
-  )
-})
 
 interface ValidationError {
   path: string
@@ -40,7 +29,6 @@ export default function ConfigEditor() {
   const [activeTab, setActiveTab] = useState<'editor' | 'schema' | 'diff'>('editor')
   const [showDiff, setShowDiff] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
-  const editorRef = useRef<any>(null)
   const [originalConfig, setOriginalConfig] = useState<string>('')
 
   const { token } = useAuthStore()
@@ -185,14 +173,12 @@ export default function ConfigEditor() {
     }
   }
 
-  const handleEditorChange = (value: string | undefined) => {
-    if (value !== undefined) {
-      setConfig(value)
-      // Debounced validation
-      const validation = validateJson(value)
-      if (!validation.valid) {
-        setErrors([{ path: '', message: validation.error || 'Invalid JSON' }])
-      }
+  const handleEditorChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value
+    setConfig(value)
+    const validation = validateJson(value)
+    if (!validation.valid) {
+      setErrors([{ path: '', message: validation.error || 'Invalid JSON' }])
     }
   }
 
@@ -254,7 +240,7 @@ export default function ConfigEditor() {
                   </svg>
                 </span>
                 Saving...
-              </> : (
+              </>) : (
                 'Save'
               )}
           </Button>
@@ -321,28 +307,11 @@ export default function ConfigEditor() {
 
           <TabsContent value="editor" className="mt-4 h-[600px]">
             <div className="h-full border border-border rounded-lg overflow-hidden">
-              <Editor
-                ref={editorRef}
-                height="100%"
-                language="json"
-                theme="vs-dark"
+              <Textarea
                 value={config}
                 onChange={handleEditorChange}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  tabSize: 2,
-                  formatOnPaste: true,
-                  formatOnType: true,
-                  autoIndent: 'full',
-                  bracketPairColorization: { enabled: true },
-                  guides: { bracketPairs: true },
-                  renderLineHighlight: 'all',
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                }}
+                className="h-full resize-none border-0 font-mono text-sm"
+                spellCheck={false}
               />
             </div>
           </TabsContent>
@@ -350,19 +319,11 @@ export default function ConfigEditor() {
           <TabsContent value="schema" className="mt-4 h-[600px]">
             <div className="h-[600px] border border-border rounded-lg overflow-hidden">
               {schema ? (
-                <Editor
-                  height="100%"
-                  language="json"
-                  theme="vs-dark"
+                <Textarea
                   value={JSON.stringify(schema, null, 2)}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 12,
-                    lineNumbers: 'on',
-                    wordWrap: 'on',
-                    tabSize: 2,
-                    readOnly: true,
-                  }}
+                  readOnly
+                  className="h-full resize-none border-0 font-mono text-sm"
+                  spellCheck={false}
                 />
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground">
@@ -401,5 +362,3 @@ export default function ConfigEditor() {
     </div>
   )
 }
-
-export default ConfigEditor

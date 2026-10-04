@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -10,8 +10,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { RefreshCw, Plus, Edit, Trash2, Shield, ShieldCheck, ShieldAlert, ShieldOff, User, Users, Key, Search, Filter, Settings, ShieldAlert, ShieldCheck, FileText, Copy, Save, AlertCircle, CheckCircle2, Loader2, X, ChevronDown, ChevronUp, Menu, X } from 'lucide-react'
+import { RefreshCw, Plus, Edit, Trash2, Shield, ShieldCheck, ShieldAlert, ShieldOff, User, Users, Key, Search, Filter, Settings, FileText, Copy, Save, AlertCircle, CheckCircle2, Loader2, X, ChevronDown, ChevronUp, Menu, MoreHorizontal } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
@@ -85,7 +86,12 @@ export default function RBACPolicyEditor() {
   const [policies, setPolicies] = useState<Policy[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null)
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string
+    description: string
+    is_system: boolean
+    document: PolicyDocument
+  }>({
     name: '',
     description: '',
     is_system: false,
@@ -234,26 +240,6 @@ export default function RBACPolicyEditor() {
     return errors.length === 0
   }
 
-  const handleNewPolicy = () => {
-    setEditingPolicy(null)
-    setFormData({
-      name: '',
-      description: '',
-      is_system: false,
-      document: { Version: '1', Statement: [{ Effect: 'Allow', Action: ['*'], Resource: ['*'] }] },
-    })
-  }
-
-  const handleEdit = (policy: Policy) => {
-    setEditingPolicy(policy)
-    setFormData({
-      name: policy.name,
-      description: policy.description || '',
-      is_system: policy.is_system,
-      document: policy.policy_document,
-    })
-  }
-
   const handleSubmit = () => {
     if (!validateForm()) return
     if (editingPolicy) handleUpdatePolicy()
@@ -276,14 +262,14 @@ export default function RBACPolicyEditor() {
     setFormData(prev => ({
       ...prev,
       document: { ...prev.document, Statement: [...prev.document.Statement, newStmt] },
-    })
+    }))
   }
 
   const removeStatement = (index: number) => {
     setFormData(prev => ({
       ...prev,
       document: { ...prev.document, Statement: prev.document.Statement.filter((_, i) => i !== index) },
-    })
+    }))
   }
 
   const updateStatement = (index: number, field: keyof PolicyStatement, value: any) => {
@@ -386,7 +372,7 @@ export default function RBACPolicyEditor() {
         </Button>
       </div>
 
-      <Tabs defaultValue="policies" onValueChange={setActiveTab} className="w-full">
+      <Tabs defaultValue="policies" onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="roles">Default Roles</TabsTrigger>
@@ -453,6 +439,7 @@ export default function RBACPolicyEditor() {
                 </TableBody>
               </Table>
             </div>
+          </div>
           </TabsContent>
 
           <TabsContent value="roles" className="mt-6">
@@ -486,12 +473,13 @@ export default function RBACPolicyEditor() {
                               <p className="font-mono text-xs">{stmt.Resource.join(', ')}</p>
                             </div>
                           </div>
+                        </div>
                         ))}
-                      )}
                     </div>
                   </CardContent>
                 </Card>
               ))}
+            </div>
             </TabsContent>
 
             <TabsContent value="editor" className="mt-6">
@@ -506,7 +494,7 @@ export default function RBACPolicyEditor() {
                       <Plus className="h-4 w-4" />
                       New
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handleSavePolicy} disabled={isSaving} className="gap-1">
+                    <Button variant="outline" size="sm" onClick={handleSubmit} disabled={isSaving} className="gap-1">
                       <Save className="w-4 h-4 mr-1" />
                       {isSaving ? 'Saving...' : 'Save'}
                     </Button>
@@ -554,6 +542,7 @@ export default function RBACPolicyEditor() {
                                     Add Action
                                   </Button>
                                 </div>
+                              </div>
                                 <div className="space-y-1">
                                   <Label className="text-xs text-muted-foreground">Resources</Label>
                                   <div className="flex flex-wrap gap-1">
@@ -572,6 +561,7 @@ export default function RBACPolicyEditor() {
                                   </div>
                                 </div>
                               </div>
+                            </div>
                             ))}
                           </div>
                           <div className="mt-4 pt-4 border-t">
@@ -581,17 +571,11 @@ export default function RBACPolicyEditor() {
                             </Button>
                           </div>
                         </div>
-                      </TabsContent>
-                    </Tabs>
+                    </div>
                   </CardContent>
                 </Card>
-              </Tabs>
-            </div>
-          </TabsContent>
-        </Tabs>
+              </TabsContent>
+            </Tabs>
       </div>
-    </div>
   )
 }
-
-export default RBACPolicyEditor

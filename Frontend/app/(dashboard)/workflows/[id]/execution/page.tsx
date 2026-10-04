@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { RefreshCw, Play, Pause, Stop, Square, Download, Filter, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, Play, Pause, Square, Download, Filter, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
@@ -70,11 +70,13 @@ export default function WorkflowExecutionMonitor() {
   }, [activeWorkflowId, executionStates, setExecutionState])
 
   const handleRunWorkflow = useCallback(async (inputMessage: string) => {
-    const workflow = workflows[activeWorkflowId]
+    const workflowId = activeWorkflowId
+    if (!workflowId) return
+    const workflow = workflows[workflowId]
     if (!workflow) return
 
     try {
-      setExecutionState(activeWorkflowId!, {
+      setExecutionState(workflowId, {
         scratchpad: {},
         messages: [],
         status: 'running',
@@ -88,7 +90,7 @@ export default function WorkflowExecutionMonitor() {
           'X-Workspace-ID': useAuthStore.getState().workspaceId || '',
         },
         body: JSON.stringify({
-          workflow_schema: workflows[activeWorkflowId],
+          workflow_schema: workflow,
           input_message: inputMessage,
         }),
       })
@@ -105,21 +107,23 @@ export default function WorkflowExecutionMonitor() {
   }, [activeWorkflowId, workflows, setExecutionState])
 
   const handleStreamExecution = useCallback(async (inputMessage: string) => {
-    const workflow = workflows[activeWorkflowId]
+    const workflowId = activeWorkflowId
+    if (!workflowId) return
+    const workflow = workflows[workflowId]
     if (!workflow) return
 
     setIsStreaming(true)
 
     try {
       const eventSource = new EventSource(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/workflow/run/stream?workflow_id=${activeWorkflowId}&token=${useAuthStore.getState().token}`
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/workflow/run/stream?workflow_id=${workflowId}&token=${useAuthStore.getState().token}`
       )
 
       eventSource.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data)
           // Add execution message to store
-          useWorkflowStore.getState().addExecutionMessage(activeWorkflowId!, {
+          useWorkflowStore.getState().addExecutionMessage(workflowId, {
             id: Math.random().toString(36).substring(2),
             timestamp: Date.now(),
             type: parsed.type,
@@ -178,7 +182,6 @@ export default function WorkflowExecutionMonitor() {
       <div className="flex flex-wrap gap-3 mb-6">
         <input
           type="text"
-          placeholder="Enter input message..."
           className="flex-1 min-w-[300px] px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="Enter input message for workflow..."
         />
@@ -223,13 +226,14 @@ export default function WorkflowExecutionMonitor() {
                 <div key={index} className="text-sm text-muted-foreground font-mono py-1 border-b border-border/50 last:border-0">
                   {log}
                 </div>
-              )}
+              ))}
               {logs.length === 0 && (
                 <div className="h-[500px] flex items-center justify-center text-muted-foreground">
                   No logs yet. Start a workflow execution to see live logs.
                 </div>
               )}
             </div>
+          </div>
           </TabsContent>
 
           <TabsContent value="metrics" className="mt-4">
@@ -291,7 +295,7 @@ export default function WorkflowExecutionMonitor() {
 
           <TabsContent value="hitl" className="mt-4">
             <div className="bg-card border border-border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">HITL Approval Queue</p>
+              <h3 className="text-lg font-semibold mb-4">HITL Approval Queue</h3>
               <p className="text-muted-foreground mb-4">Human-in-the-loop approval requests waiting for review</p>
               <div className="text-center py-12">
                 <svg className="w-12 h-12 mx-auto text-muted-foreground mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -304,8 +308,5 @@ export default function WorkflowExecutionMonitor() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
   )
 }
-
-export default WorkflowExecutionMonitor

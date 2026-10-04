@@ -90,13 +90,13 @@ interface WorkflowStore {
   
   // Workspace Actions
   createWorkspace: (name: string) => void
-  setActiveWorkspace: (id: string) => void
+  setActiveWorkspace: (id: string | null) => void
   updateWorkspace: (id: string, updates: Partial<Workspace>) => void
   deleteWorkspace: (id: string) => void
   
   // Workflow Actions
   createWorkflow: (name: string, workspaceId?: string) => string
-  setActiveWorkflow: (id: string) => void
+  setActiveWorkflow: (id: string | null) => void
   updateWorkflow: (id: string, updates: Partial<WorkflowSchema>) => void
   deleteWorkflow: (id: string) => void
   duplicateWorkflow: (id: string) => string
@@ -155,7 +155,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
       metrics: {},
       traces: {},
       hitlRequests: [],
-      sidebarOpen: true,
+      sidebarOpen: false,
       configPanelOpen: false,
       registryDrawerOpen: false,
 
@@ -241,7 +241,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               updated_at: new Date().toISOString(),
             },
           },
-        })
+        }))
       },
 
       deleteWorkflow: (id) => {
@@ -477,7 +477,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
                 messages: [...currentState.messages, message],
               },
             },
-          })
+          }
         })
       },
 

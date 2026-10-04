@@ -45,19 +45,6 @@ import {
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
-// Config types
-interface ConfigResponse {
-  platform: Record<string, unknown>
-  integrations: Record<string, unknown>
-  version: string
-  last_modified?: string
-}
-
-interface ConfigUpdateRequest {
-  config: Record<string, unknown>
-  merge_strategy?: 'json_merge' | 'id_aware' | 'replace'
-}
-
 function yamlToJson(yaml: string): Record<string, unknown> {
   try {
     // Simple YAML to JSON - in production use js-yaml
@@ -150,13 +137,13 @@ function ConfigTab() {
   // Subscribe to real-time config changes
   useEffect(() => {
     const cleanup = configApi.streamChanges(
-      (newConfig) => {
+      (newConfig: Record<string, unknown>) => {
         const yaml = jsonToYaml(newConfig)
         setYamlContent(yaml)
         setOriginalYaml(yaml)
         toast({ title: 'Config updated', description: 'Configuration changed by another user' })
       },
-      (error) => console.error('Config stream error:', error)
+      (error: string) => console.error('Config stream error:', error)
     )
     return () => cleanup()
   }, [])

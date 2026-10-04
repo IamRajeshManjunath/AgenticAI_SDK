@@ -196,65 +196,59 @@ class IntegrationRegistry:
         # Known LangChain integration packages
         known_packages = {
             # Chat models
-            "langchain-openai": ("chat_model", "openai"),
-            "langchain-anthropic": ("chat_model", "anthropic"),
-            "langchain-google-genai": ("chat_model", "google_genai"),
-            "langchain-google-vertexai": ("chat_model", "google_vertex"),
-            "langchain-aws": ("chat_model", "bedrock"),
-            "langchain-groq": ("chat_model", "groq"),
-            "langchain-mistralai": ("chat_model", "mistral"),
-            "langchain-cohere": ("chat_model", "cohere"),
-            "langchain-xai": ("chat_model", "xai"),
-            "langchain-deepseek": ("chat_model", "deepseek"),
-            "langchain-nvidia-ai-endpoints": ("chat_model", "nvidia"),
-            "langchain-together": ("chat_model", "together"),
-            "langchain-fireworks": ("chat_model", "fireworks"),
-            "langchain-databricks": ("chat_model", "databricks"),
-            "langchain-ibm": ("chat_model", "watsonx"),
-            "langchain-perplexity": ("chat_model", "perplexity"),
-            "langchain-cerebras": ("chat_model", "cerebras"),
-            "langchain-huggingface": ("chat_model", "huggingface"),
-            "langchain-litellm": ("chat_model", "litellm"),
-            "langchain-openrouter": ("chat_model", "openrouter"),
-            "langchain-ollama": ("chat_model", "ollama"),
-            "langchain-azure-ai": ("chat_model", "azure_ai"),
+            "langchain-openai": [("chat_model", "openai"), ("embedding", "openai")],
+            "langchain-anthropic": [("chat_model", "anthropic")],
+            "langchain-google-genai": [("chat_model", "google_genai"), ("embedding", "google_genai")],
+            "langchain-google-vertexai": [("chat_model", "google_vertex")],
+            "langchain-aws": [("chat_model", "bedrock")],
+            "langchain-groq": [("chat_model", "groq")],
+            "langchain-mistralai": [("chat_model", "mistral"), ("embedding", "mistral")],
+            "langchain-cohere": [("chat_model", "cohere"), ("embedding", "cohere")],
+            "langchain-xai": [("chat_model", "xai")],
+            "langchain-deepseek": [("chat_model", "deepseek")],
+            "langchain-nvidia-ai-endpoints": [("chat_model", "nvidia"), ("embedding", "nvidia")],
+            "langchain-together": [("chat_model", "together"), ("embedding", "together")],
+            "langchain-fireworks": [("chat_model", "fireworks")],
+            "langchain-databricks": [("chat_model", "databricks"), ("embedding", "databricks")],
+            "langchain-ibm": [("chat_model", "watsonx"), ("embedding", "watsonx")],
+            "langchain-perplexity": [("chat_model", "perplexity")],
+            "langchain-cerebras": [("chat_model", "cerebras")],
+            "langchain-huggingface": [("chat_model", "huggingface"), ("embedding", "huggingface")],
+            "langchain-litellm": [("chat_model", "litellm")],
+            "langchain-openrouter": [("chat_model", "openrouter")],
+            "langchain-ollama": [("chat_model", "ollama"), ("embedding", "ollama")],
+            "langchain-azure-ai": [("chat_model", "azure_ai")],
             
             # Embeddings
-            "langchain-openai": ("embedding", "openai"),
-            "langchain-google-genai": ("embedding", "google_genai"),
-            "langchain-ollama": ("embedding", "ollama"),
-            "langchain-cohere": ("embedding", "cohere"),
-            "langchain-mistralai": ("embedding", "mistral"),
-            "langchain-nomic": ("embedding", "nomic"),
-            "langchain-voyageai": ("embedding", "voyage"),
-            "langchain-ibm": ("embedding", "watsonx"),
+            "langchain-nomic": [("embedding", "nomic")],
+            "langchain-voyageai": [("embedding", "voyage")],
             
             # Vector stores
-            "langchain-qdrant": ("vector_store", "qdrant"),
-            "langchain-pinecone": ("vector_store", "pinecone"),
-            "langchain-chroma": ("vector_store", "chroma"),
-            "langchain-weaviate": ("vector_store", "weaviate"),
-            "langchain-milvus": ("vector_store", "milvus"),
-            "langchain-elasticsearch": ("vector_store", "elasticsearch"),
-            "langchain-postgres": ("vector_store", "pgvector"),
-            "langchain-astradb": ("vector_store", "astradb"),
-            "langchain-redis": ("vector_store", "redis"),
-            "langchain-mongodb": ("vector_store", "mongodb"),
+            "langchain-qdrant": [("vector_store", "qdrant")],
+            "langchain-pinecone": [("vector_store", "pinecone")],
+            "langchain-chroma": [("vector_store", "chroma")],
+            "langchain-weaviate": [("vector_store", "weaviate")],
+            "langchain-milvus": [("vector_store", "milvus")],
+            "langchain-elasticsearch": [("vector_store", "elasticsearch")],
+            "langchain-postgres": [("vector_store", "pgvector")],
+            "langchain-astradb": [("vector_store", "astradb")],
+            "langchain-redis": [("vector_store", "redis")],
+            "langchain-mongodb": [("vector_store", "mongodb")],
             
             # Tools
-            "langchain-tavily": ("tool", "tavily"),
-            "langchain-composio": ("tool", "composio"),
-            "langchain-google-community": ("tool", "google"),
-            "langchain-exa": ("tool", "exa"),
+            "langchain-tavily": [("tool", "tavily")],
+            "langchain-composio": [("tool", "composio")],
+            "langchain-google-community": [("tool", "google")],
+            "langchain-exa": [("tool", "exa")],
             
             # Checkpointers
-            "langgraph-checkpoint-postgres": ("checkpointer", "postgres"),
-            "langgraph-checkpoint-sqlite": ("checkpointer", "sqlite"),
-            "langgraph-checkpoint-redis": ("checkpointer", "redis"),
-            "langgraph-checkpoint-mongodb": ("checkpointer", "mongodb"),
+            "langgraph-checkpoint-postgres": [("checkpointer", "postgres")],
+            "langgraph-checkpoint-sqlite": [("checkpointer", "sqlite")],
+            "langgraph-checkpoint-redis": [("checkpointer", "redis")],
+            "langgraph-checkpoint-mongodb": [("checkpointer", "mongodb")],
         }
         
-        for package_name, (itype, provider) in known_packages.items():
+        for package_name, integrations in known_packages.items():
             try:
                 dist = importlib.metadata.distribution(package_name)
                 version = dist.version
@@ -262,24 +256,25 @@ class IntegrationRegistry:
                 # Try to get download count from PyPI (cached)
                 downloads = self._get_download_count(package_name)
                 
-                metadata = PluginMetadata(
-                    type=IntegrationType(itype),
-                    provider=provider,
-                    name=package_name.replace("langchain-", "").replace("langgraph-", "").replace("-", " ").title(),
-                    description=f"{provider} integration via {package_name}",
-                    package_name=package_name,
-                    version=version,
-                    features=FeatureFlags(
-                        stream=True,
-                        tools=True,
-                        structured_output=True,
-                        multimodal=False,
-                    ),
-                    config_schema=self._get_config_schema(package_name, itype),
-                    downloads_per_month=downloads,
-                    tags=["langchain", "official"],
-                )
-                discovered.append(metadata)
+                for itype, provider in integrations:
+                    metadata = PluginMetadata(
+                        type=IntegrationType(itype),
+                        provider=provider,
+                        name=package_name.replace("langchain-", "").replace("langgraph-", "").replace("-", " ").title(),
+                        description=f"{provider} integration via {package_name}",
+                        package_name=package_name,
+                        version=version,
+                        features=FeatureFlags(
+                            stream=True,
+                            tools=True,
+                            structured_output=True,
+                            multimodal=False,
+                        ),
+                        config_schema=self._get_config_schema(package_name, itype),
+                        downloads_per_month=downloads,
+                        tags=["langchain", "official"],
+                    )
+                    discovered.append(metadata)
             except importlib.metadata.PackageNotFoundError:
                 continue
             except Exception as e:

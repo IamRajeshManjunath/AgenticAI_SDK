@@ -28,6 +28,7 @@ from agenticai_sdk.exceptions import (
 from agenticai_sdk.gateway.auth_middleware import AuthMiddleware
 from agenticai_sdk.gateway.middleware import ExecutionTrackingMiddleware
 from agenticai_sdk.gateway.routes import route_modules
+from agenticai_sdk.security import get_cors_origins, validate_security_configuration
 
 # ── Structlog configuration ───────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     Returns:
         Configured FastAPI application instance.
     """
+    validate_security_configuration()
     _configure_logging(log_level)
 
     app = FastAPI(
@@ -128,7 +130,7 @@ def create_app(*, log_level: str = "INFO", cors_origins: list[str] | None = None
     app.add_middleware(ExecutionTrackingMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins or ["*"],
+        allow_origins=cors_origins if cors_origins is not None else get_cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

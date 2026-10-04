@@ -38,6 +38,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
+import { providersWithCurrent, useChatModelProviders } from '@/lib/provider-options'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import type { ProposalResponse, ProposalAgent, ProposalEdge } from '@/lib/types'
@@ -401,6 +402,7 @@ function AgentPropertyPanel({
   onUpdate: (agent: ProposalAgent) => void
   onClose: () => void
 }) {
+  const { providers: chatModelProviders, error: providersError } = useChatModelProviders()
   const set = (partial: Partial<ProposalAgent>) => onUpdate({ ...agent, ...partial })
 
   return (
@@ -461,12 +463,12 @@ function AgentPropertyPanel({
           >
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="openai">OpenAI</SelectItem>
-              <SelectItem value="anthropic">Anthropic</SelectItem>
-              <SelectItem value="azure">Azure OpenAI</SelectItem>
-              <SelectItem value="google">Google Gemini</SelectItem>
+              {providersWithCurrent(chatModelProviders, agent.llm.provider).map((provider) => (
+                <SelectItem key={provider.provider} value={provider.provider}>{provider.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {providersError && <p className="text-xs text-destructive">{providersError}</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

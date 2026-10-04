@@ -329,17 +329,19 @@ Deep execution observability. Written by the OpenTelemetry bridge after each wor
 
 ### `schema_audit_trails`
 
-Immutable IO payload audit log. Records every data payload entering and exiting agent nodes, along with the schema it was validated against.
+Agent JSON Schema validation audit log. Stores the configured schema, validation outcome, and a payload fingerprint; the raw input/output is not duplicated in this table.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `VARCHAR` | **PK**, index | |
 | `agent_id` | `VARCHAR` | index | Agent node ID |
 | `direction` | `VARCHAR` | | `"incoming"` or `"outgoing"` |
-| `payload` | `JSON` | | The exact data that was validated |
+| `payload` | `JSON` | | SHA-256 fingerprint and top-level key names, not raw payload |
 | `schema_definition` | `JSON` | | The schema used for validation |
 | `is_valid` | `INTEGER` | | `1` = valid, `0` = violation |
 | `violation_error` | `VARCHAR` | nullable | Description of schema violation |
+| `workspace_id` | `VARCHAR` | nullable, index | Workspace scope added by migration `002` |
+| `workflow_id` | `VARCHAR` | nullable, index | Workflow scope added by migration `002` |
 | `created_at` | `TIMESTAMPTZ` | server_default `now()` | |
 
 ---

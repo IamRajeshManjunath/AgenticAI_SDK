@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -10,8 +10,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { RefreshCw, Plus, Edit, Trash2, Users, Building2, Shield, Key, Settings, Mail, Send, X, CheckCircle2, AlertCircle, Loader2, MoreHorizontal } from 'lucide-react'
+import { RefreshCw, Plus, Edit, Trash2, Users, Building2, Shield, Key, Settings, Mail, Send, X, CheckCircle2, AlertCircle, Loader2, MoreHorizontal, Eye, Workflow } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
@@ -197,6 +198,20 @@ export default function OrganizationPage() {
     }
   }
 
+  const handleDeleteWorkspace = async (id: string) => {
+      if (!confirm('Delete this workspace? This cannot be undone.')) return
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/workspaces/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token || ''}` },
+        })
+        if (!response.ok) throw new Error(`Request failed with status ${response.status}`)
+        await fetchWorkspaces()
+      } catch (error) {
+        console.error('Failed to delete workspace:', error)
+    }
+  }
+
   const handleInvite = async () => {
     if (!inviteEmail) return
     try {
@@ -265,7 +280,7 @@ export default function OrganizationPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="organizations" onValueChange={setActiveTab} className="w-full">
+      <Tabs defaultValue="organizations" onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="organizations">Organizations</TabsTrigger>
           <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
@@ -304,7 +319,7 @@ export default function OrganizationPage() {
                       <Edit className="h-4 w-4" />
                       Edit
                     </Button>
-                    <Button variant="outline" size="sm" variant="destructive" onClick={() => handleDeleteOrg(org.id)} className="gap-1">
+                    <Button variant="destructive" size="sm" onClick={() => handleDeleteOrg(org.id)} className="gap-1">
                       <Trash2 className="h-4 w-4" />
                       Delete
                     </Button>
@@ -323,6 +338,7 @@ export default function OrganizationPage() {
                 </Button>
               </div>
             )}
+          </div>
           </TabsContent>
 
           <TabsContent value="workspaces" className="mt-6">
@@ -353,7 +369,7 @@ export default function OrganizationPage() {
                         <Settings className="h-4 w-4" />
                         Settings
                       </Button>
-                      <Button variant="outline" size="sm" variant="destructive" className="gap-1" onClick={() => handleDeleteWorkspace(ws.id)}>
+                      <Button variant="destructive" size="sm" className="gap-1" onClick={() => handleDeleteWorkspace(ws.id)}>
                         <Trash2 className="h-4 w-4" />
                         Delete
                       </Button>
@@ -364,7 +380,7 @@ export default function OrganizationPage() {
               {workspaces.length === 0 && (
                 <div className="text-center py-12">
                   <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-muted/50 flex items-center justify-center">
-                    <WorkFlow className="w-6 h-6 text-muted-foreground" />
+                    <Workflow className="w-6 h-6 text-muted-foreground" />
                   </div>
                   <h3 className="text-lg font-medium mb-2">No workspaces</h3>
                   <p className="text-muted-foreground mb-4">Create your first workspace to get started</p>
@@ -374,6 +390,7 @@ export default function OrganizationPage() {
                   </Button>
                 </div>
               )}
+            </div>
             </TabsContent>
 
           <TabsContent value="members" className="mt-6">
@@ -520,14 +537,11 @@ export default function OrganizationPage() {
                       ))}
                     </TableBody>
                   </Table>
+                )}
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
-      </div>
     </div>
   )
 }
-
-export default OrganizationPage

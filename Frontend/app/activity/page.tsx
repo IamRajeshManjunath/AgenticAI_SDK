@@ -135,7 +135,7 @@ export default function ActivityPage() {
                         {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown'}
                       </span>
                     </div>
-                    {log.details?.resource_name && (
+                    {typeof log.details?.resource_name === 'string' && log.details.resource_name && (
                       <p className="text-sm mt-1 truncate">
                         {String(log.details.resource_name)}
                       </p>

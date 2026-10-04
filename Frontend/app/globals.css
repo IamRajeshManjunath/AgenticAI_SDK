@@ -153,19 +153,17 @@
   }
   
   .glass-card {
-    background-color: var(--glass);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
   }
   
   .glow-primary {
-    box-shadow: 0 0 20px var(--glow), 0 0 40px var(--glow);
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 24%, transparent);
   }
   
   .glow-primary-sm {
-    box-shadow: 0 0 10px var(--glow), 0 0 20px var(--glow);
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent);
   }
   
   .pulse-glow {

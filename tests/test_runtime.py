@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import Mock
 
 from agenticai_sdk.exceptions import ToolResolutionError
 from agenticai_sdk.runtime.context_engine import ContextEngine
@@ -14,6 +15,7 @@ from agenticai_sdk.schemas import (
     PromptTemplateConfig,
 )
 from agenticai_sdk.schemas.tools import ToolConfig
+from agenticai_sdk.runtime.llm_factory import LLMClientFactory
 
 
 # ── ToolRegistry Tests ────────────────────────────────────────────────────────
@@ -144,3 +146,24 @@ class TestContextEngine:
         messages = [HumanMessage(content="hello")]
         result = engine.extract_last_ai_content(messages)
         assert result == ""
+
+
+class TestLLMClientFactory:
+    def test_dynamic_provider_uses_registered_plugin(self):
+        plugin = Mock()
+        plugin.create_instance.return_value = "created-model"
+        registry = Mock()
+        registry.get_plugin.return_value = plugin
+
+        factory = LLMClientFactory(registry=registry)
+        config = LLMConfig(
+            provider="bedrock",
+            model_name="anthropic.claude-3-5-sonnet",
+            temperature=0.4,
+            api_key_env_var="AWS_ACCESS_KEY_ID",
+        )
+
+        assert factory.create(config) == "created-model"
+        registry.get_plugin.assert_called_once()
+        assert registry.get_plugin.call_args.args[1] == "bedrock"
+        assert plugin.create_instance.call_args.args[0]["model"] == "anthropic.claude-3-5-sonnet"

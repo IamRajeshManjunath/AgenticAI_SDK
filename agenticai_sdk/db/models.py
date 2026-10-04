@@ -183,16 +183,18 @@ class WorkflowTrace(Base):
     workflow = relationship("Workflow")
 
 class SchemaAuditTrail(Base):
-    """Immutable audit trail recording exact node payloads and schema enforcement actions."""
+    """Workspace-scoped audit trail for agent schema outcomes and payload fingerprints."""
     __tablename__ = "schema_audit_trails"
 
     id = Column(String, primary_key=True, index=True)
     agent_id = Column(String, index=True)
     direction = Column(String)  # 'incoming' or 'outgoing'
-    payload = Column(JSON)      # The exact data
+    payload = Column(JSON)      # Fingerprint and top-level keys; excludes raw payload values.
     schema_definition = Column(JSON) # The schema it was validated against
     is_valid = Column(Integer)  # 1 for valid, 0 for violation
     violation_error = Column(String, nullable=True)
+    workspace_id = Column(String, index=True, nullable=True)
+    workflow_id = Column(String, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class BillingData(Base):
@@ -472,3 +474,31 @@ class WorkflowRun(Base):
         UniqueConstraint('workspace_id', 'idempotency_key', name='uq_workspace_idempotency_key'),
     )
 
+
+class WorkflowJob(Base):
+    """Durable workflow execution request consumed by the worker process."""
+    __tablename__ = "workflow_jobs"
+
+    id = Column(String, primary_key=True, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_id = Column(String, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    thread_id = Column(String, nullable=False, unique=True, index=True)
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=False)
+    workflow_config = Column(JSON, nullable=False)
+    input_message = Column(Text, nullable=False)
+    initial_state = Column(JSON, nullable=False, default=dict)
+    resume = Column(Integer, nullable=False, default=0)
+    status = Column(String, nullable=False, default="pending", index=True)
+    result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    worker_id = Column(String, nullable=True, index=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_workflow_job_idempotency"),
+    )

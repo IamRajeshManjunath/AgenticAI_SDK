@@ -1,64 +1,55 @@
 'use client'
 
-import { useEffect, useState, ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useAuthStore } from '@/lib/auth-store'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const router = useRouter()
-  const { token, refreshToken, loadSession, logout } = useAuthStore()
+  const loadSession = useAuthStore((state) => state.loadSession)
   const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
-    // Load session on mount
-    const init = async () => {
-      // Check if we have a refresh token but no access token
-      const authStore = useAuthStore.getState()
-      if (authStore.refreshToken && !authStore.token) {
-        try {
-          await authStore.refreshAccessToken()
-        } catch {
-          // Refresh failed, user will need to login
-        }
-      }
-      setInitialized(true)
-    }
-    init()
-  }, [])
+    let mounted = true
+    void loadSession().finally(() => {
+      if (mounted) setInitialized(true)
+    })
 
-  // Handle 401 responses globally
+    return () => {
+      mounted = false
+    }
+  }, [loadSession])
+
   useEffect(() => {
-    const originalFetch = window.fetch
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const originalFetch = window.fetch.bind(window)
+
+    window.fetch = async (input, init) => {
       const response = await originalFetch(input, init)
-      
-      if (response.status === 401) {
-        const authStore = useAuthStore.getState()
-        if (authStore.refreshToken) {
-          try {
-            await authStore.refreshAccessToken()
-            // Retry the original request
-            const authStore2 = useAuthStore.getState()
-            const newInit = {
-              ...init,
-              headers: {
-                ...init?.headers,
-                'Authorization': `Bearer ${useAuthStore.getState().token}`,
-              },
-            }
-            return window.fetch(input, newInit)
-          } catch {
-            // Refresh failed, logout
-            useAuthStore.getState().logout()
-            window.location.href = '/login'
-          }
-        } else {
-          // No refresh token, redirect to login
-          useAuthStore.getState().logout()
-          window.location.href = '/login'
-        }
+      const requestUrl = input instanceof Request ? input.url : String(input)
+      if (
+        response.status !== 401 ||
+        requestUrl.endsWith('/auth/login') ||
+        requestUrl.endsWith('/auth/register') ||
+        requestUrl.endsWith('/auth/refresh')
+      ) {
+        return response
       }
-      return response
+
+      const authStore = useAuthStore.getState()
+      if (!authStore.refreshToken) {
+        authStore.logout()
+        window.location.assign('/login')
+        return response
+      }
+
+      const accessToken = await authStore.refreshAccessToken()
+      if (!accessToken) {
+        window.location.assign('/login')
+        return response
+      }
+
+      const headers = new Headers(input instanceof Request ? input.headers : undefined)
+      new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
+      headers.set('Authorization', `Bearer ${accessToken}`)
+      return originalFetch(input, { ...init, headers })
     }
 
     return () => {
@@ -69,9 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (!initialized) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent" />
       </div>
     )
   }
 
   return <>{children}</>
+}

@@ -1,9 +1,10 @@
 import useSWR from 'swr'
 import useSWRMutation from 'swr/mutation'
-import { fetchApi, type ApiResponse, type WorkflowRunResponse, type HITLApprovalRequest, type TraceResponse, type MetricsResponse } from './http'
+import { fetchApi, type ApiResponse, type HITLApprovalRequest, type TraceResponse, type MetricsResponse } from './http'
 import { useWorkflowStore } from './store'
-import type { WorkflowSchema, WorkflowMetrics, TraceSpan, ExecutionMessage } from './types'
+import type { WorkflowMetrics, ExecutionMessage } from './types'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { workflowApi } from './api'
 
 // SWR fetcher wrapper
 const fetcher = async <T>(key: string, fetcher: () => Promise<{ data?: T; error?: string }>) => {
@@ -87,98 +88,47 @@ export function useWorkflowMetrics(workflowId: string | null) {
  * Hook for running a workflow with SSE streaming
  */
 export function useWorkflowRun(workflowId: string) {
-  const { workflows, setExecutionState, addExecutionMessage, setMetrics, setTrace } = useWorkflowStore()
+  const workflows = useWorkflowStore((state) => state.workflows)
   const workflow = workflows[workflowId]
-  const streamCleanupRef = useRef<EventSource | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const run = useCallback(async (inputMessage: string) => {
     if (!workflow) throw new Error('Workflow not found')
     setIsRunning(true)
-
-    setExecutionState(workflowId, {
-      scratchpad: {},
-      messages: [],
-      status: 'running',
-    })
-
-    // Use the streaming endpoint
-    const eventSource = new EventSource(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/workflow/run/stream?workflow_id=${workflowId}`
-    )
-
-    let cleanup: (() => void) | null = null
-
+    setError(null)
     try {
-      eventSource.onmessage = (event) => {
-        try {
-          const parsed = JSON.parse(event.data)
-          switch (parsed.type) {
-            case 'thought':
-            case 'tool_call':
-            case 'tool_result':
-            case 'message':
-            case 'error':
-            case 'hitl':
-              // Add execution message to store
-              const store = require('./store').useWorkflowStore.getState()
-              store.addExecutionMessage(workflowId, {
-                id: Math.random().toString(36).substring(2),
-                timestamp: Date.now(),
-                type: parsed.type,
-                agent_id: (parsed.data as { agent_id?: string }).agent_id || 'system',
-                content: (parsed.data as { content?: string }).content || JSON.stringify(parsed.data),
-                metadata: parsed.data as Record<string, unknown>,
-              })
-              break
-            case 'complete':
-              require('./store').useWorkflowStore.getState().setExecutionState(workflowId, {
-                scratchpad: (parsed.data as { scratchpad?: Record<string, unknown> }).scratchpad || {},
-                messages: [],
-                status: 'completed',
-              })
-              break
-          }
-        } catch {
-          console.error('Failed to parse SSE event:', event.data)
-        }
+      const response = await workflowApi.run(workflow, inputMessage)
+      if (response.error || !response.data) {
+        throw new Error(response.error || 'The workflow run was not accepted.')
       }
-
-      eventSource.onerror = () => {
-        // Connection lost - could implement reconnection logic here
-      }
-    } catch (error) {
-      console.error('SSE connection error:', error)
+      setActiveRunId(response.data.run_id)
+      return response.data
+    } catch (runError) {
+      const message = runError instanceof Error ? runError.message : 'The workflow could not be queued.'
+      setError(message)
+      throw runError
+    } finally {
+      setIsRunning(false)
     }
+  }, [workflow])
 
-    // For now, also call the regular run endpoint for backwards compatibility
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/workflow/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workflow_schema: workflow,
-        input_message: inputMessage,
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(error || 'Failed to run workflow')
+  const stop = useCallback(async () => {
+    if (!activeRunId) return
+    const response = await workflowApi.cancelRun(activeRunId)
+    if (response.error) {
+      setError(response.error)
+      throw new Error(response.error)
     }
-
-    const result = await response.json()
-    return result
-  }, [workflowId])
-
-  const stop = useCallback(() => {
-    // Note: EventSource doesn't have a stop method, it closes on close()
-  }, [workflowId])
+    setActiveRunId(null)
+  }, [activeRunId])
 
   return {
-    run: (inputMessage: string) => trigger({ inputMessage }),
+    run,
     stop,
-    isRunning: true, // Simplified for now
-    error: null,
+    isRunning,
+    error,
   }
 }
 

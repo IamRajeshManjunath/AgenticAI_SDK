@@ -79,7 +79,7 @@ class FallbackRouter:
 
         for idx, llm_config in enumerate(all_configs):
             is_primary = idx == 0
-            provider_name = f"{llm_config.provider.value}/{llm_config.model_name}"
+            provider_name = f"{llm_config.provider}/{llm_config.model_name}"
 
             try:
                 # Resolve LLM (skip for primary — already resolved)
@@ -89,7 +89,7 @@ class FallbackRouter:
                     logger.info(
                         "fallback_swapping_llm",
                         agent_id=agent_config.agent_id,
-                        from_provider=all_configs[idx - 1].provider.value,
+                        from_provider=all_configs[idx - 1].provider,
                         to_provider=provider_name,
                         attempt=idx + 1,
                         total_options=len(all_configs),

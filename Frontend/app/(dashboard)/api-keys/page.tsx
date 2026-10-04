@@ -17,7 +17,6 @@ import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Textarea } from '@/components/ui/textarea'
 
 interface ApiKey {
   id: string
@@ -42,7 +41,6 @@ export default function ApiKeysPage() {
     workflow_id: '',
     expires_at: '',
   })
-  const [editingKey, setEditingKey] = useState<any | null>(null)
 
   const { token } = useAuthStore()
 
@@ -166,6 +164,7 @@ export default function ApiKeysPage() {
   const handleViewValue = async (key: any) => {
     if (showValue === key.id) {
       setShowValue(null)
+      setSelectedKey(null)
       return
     }
     try {
@@ -242,54 +241,50 @@ export default function ApiKeysPage() {
                         <Badge variant="secondary">Workflow: {key.workflow_id.slice(0, 8)}...</Badge>
                       )}
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground">Prefix</Label>
-                        <code className="px-2 py-1 bg-muted rounded text-xs font-mono">{key.key_prefix}********</code>
-                        {showValue === key.id && (
-                          <>
-                            <code className="px-2 py-1 bg-muted rounded text-xs font-mono break-all">{showValue}</code>
-                            <Button variant="ghost" size="sm" onClick={() => handleCopyValue(secrets.find(s => s.id === showValue)?.value || '')} className="gap-1">
-                              <Copy className="w-3 h-3" />
-                              Copy
-                            </Button>
-                          </>
-                        )}
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>Created: {new Date(key.created_at).toLocaleDateString()}</span>
-                          {key.expires_at && <span>Expires: {new Date(key.expires_at).toLocaleDateString()}</span>}
-                          {key.last_used_at && <span>Last used: {new Date(key.last_used_at).toLocaleDateString()}</span>}
-                        </div>
-                      </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Prefix</Label>
+                      <code className="px-2 py-1 bg-muted rounded text-xs font-mono">{key.key_prefix}********</code>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span>Created: {new Date(key.created_at).toLocaleDateString()}</span>
+                      {key.expires_at && <span>Expires: {new Date(key.expires_at).toLocaleDateString()}</span>}
+                      {key.last_used_at && <span>Last used: {new Date(key.last_used_at).toLocaleDateString()}</span>}
+                    </div>
+                    {selectedKey === key.id && showValue && (
+                      <code className="block break-all rounded bg-muted p-2 text-xs font-mono">{showValue}</code>
+                    )}
+                  </div>
 
-                      <div className="flex items-center gap-2 pt-3 border-t border-border">
-                        <Button variant="ghost" size="sm" onClick={() => handleViewValue(key)} className="gap-1">
-                          {showValue === key.id ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          {showValue === key.id ? 'Hide' : 'Show'}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleCopyValue(secrets.find(s => s.id === showValue)?.value || '')} disabled={showValue !== key.id} className="gap-1">
-                          <Copy className="w-4 h-4" />
-                          Copy
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => { setEditingKey(key); setFormData({ name: key.name, workflow_id: key.workflow_id || '', expires_at: key.expires_at || '' }) }} className="gap-1">
-                          <Edit className="w-4 h-4" />
-                          Edit
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleRegenerate(key.id)} className="gap-1 text-orange-600 hover:text-orange-700">
-                          <RefreshCw className="w-4 h-4" />
-                          Regenerate
-                        </Button>
-                        <Button variant="ghost" size="sm" variant="destructive" onClick={() => handleDelete(key.id)} className="gap-1">
-                          <Trash2 className="w-4 h-4" />
-                          Delete
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    <Button variant="ghost" size="sm" onClick={() => handleViewValue(key)} className="gap-1">
+                      {selectedKey === key.id ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {selectedKey === key.id ? 'Hide' : 'Show'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleCopyValue(showValue || '')} disabled={selectedKey !== key.id || !showValue} className="gap-1">
+                      <Copy className="w-4 h-4" />
+                      Copy
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setEditingKey(key); setFormData({ name: key.name, workflow_id: key.workflow_id || '', expires_at: key.expires_at || '' }) }} className="gap-1">
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleRegenerate(key.id)} className="gap-1 text-orange-600 hover:text-orange-700">
+                      <RefreshCw className="w-4 h-4" />
+                      Regenerate
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => handleDelete(key.id)} className="gap-1">
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
               {keys.length === 0 && (
                 <div className="text-center py-12">
@@ -302,10 +297,8 @@ export default function ApiKeysPage() {
                   </Button>
                 </div>
               )}
-            </div>
-          </>
+        </>
         )}
-      </div>
 
       {/* Create/Edit Dialog */}
       <div className="fixed inset-0 z-50 overflow-y-auto" style={{ display: editingKey ? 'block' : 'none' }}>
@@ -355,9 +348,7 @@ export default function ApiKeysPage() {
             </form>
           </div>
         </div>
-      )}
-    </>
+      </div>
+      </div>
   )
 }
-
-export default ApiKeysPage

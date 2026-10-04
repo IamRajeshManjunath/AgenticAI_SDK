@@ -156,7 +156,11 @@ export default function PoliciesPage() {
     statements: [{ Effect: 'Allow' as const, Action: ['*'], Resource: ['*'] }],
   })
 
-  const updateStatement = (index: number, field: keyof StatementBuilder, value: string) => {
+  const updateStatement = <K extends keyof StatementBuilder>(
+    index: number,
+    field: K,
+    value: StatementBuilder[K]
+  ) => {
     setForm((prev) => {
       const stmts = prev.statements.map((s, i) => (i === index ? { ...s, [field]: value } : s))
       return { ...prev, statements: stmts }

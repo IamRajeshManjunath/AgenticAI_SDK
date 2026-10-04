@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from pydantic import BaseModel, Field, field_validator
 
 from agenticai_sdk.schemas.llm import LLMConfig
 from agenticai_sdk.schemas.memory import MemoryConfig
@@ -96,3 +98,16 @@ class AgentNodeConfig(BaseModel):
         default=None,
         description="Path to a specific skill.md file for this agent's dynamic rule bindings.",
     )
+
+    @field_validator("input_schema", "output_schema")
+    @classmethod
+    def validate_json_schema(cls, schema: dict | None) -> dict | None:
+        if schema is None:
+            return None
+        if not isinstance(schema, dict):
+            raise ValueError("Agent input and output schemas must be JSON objects.")
+        try:
+            Draft202012Validator.check_schema(schema)
+        except SchemaError as exc:
+            raise ValueError(f"Invalid JSON Schema: {exc.message}") from exc
+        return schema

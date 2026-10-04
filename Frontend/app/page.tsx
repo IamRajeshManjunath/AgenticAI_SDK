@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -39,18 +39,62 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import useSWR from 'swr'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
+import { api } from '@/lib/api'
+import { normalizeWorkflowConfig } from '@/lib/workflow-adapters'
 
 export default function HomePage() {
   const router = useRouter()
   const { toast } = useToast()
-  const { workflows, activeWorkspaceId } = useWorkflowStore()
-  const { data: dbStatus, mutate: mutateDbStatus } = useSWR(`${API_BASE}/workflow/db/status`, fetcher)
+  const { workflows } = useWorkflowStore()
+  const {
+    data: dashboardData,
+    error: dashboardError,
+    mutate: refreshDashboard,
+  } = useSWR('dashboard-overview', async () => {
+    const [workflowResponse, toolResponse, traceResponse, ragResponse] = await Promise.all([
+      api.crud.getWorkflows(),
+      api.crud.getTools(),
+      api.traces.list(),
+      api.crud.getRAGSources(),
+    ])
+    const failedResponse = [workflowResponse, toolResponse, traceResponse, ragResponse]
+      .find((response) => response.error)
+    if (failedResponse?.error) throw new Error(failedResponse.error)
+    return {
+      workflows: workflowResponse.data ?? [],
+      tools: toolResponse.data ?? [],
+      traces: traceResponse.data ?? [],
+      ragSources: ragResponse.data ?? [],
+    }
+  })
   
   const workflowList = Object.values(workflows)
+  const savedWorkflowIds = new Set((dashboardData?.workflows ?? []).map((workflow) => workflow.id))
+  const recentWorkflows = [
+    ...(dashboardData?.workflows ?? []).map((workflow) => {
+      const config = typeof workflow.config === 'object' && workflow.config !== null
+        ? workflow.config as Record<string, unknown>
+        : {}
+      return {
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description || '',
+        agents: Array.isArray(config.agents) ? config.agents.length : 0,
+        entryPoint: typeof config.entry_point === 'string' ? config.entry_point : 'Not set',
+        draft: false,
+      }
+    }),
+    ...workflowList
+      .filter((workflow) => !savedWorkflowIds.has(workflow.id))
+      .map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description,
+        agents: workflow.agents.length,
+        entryPoint: workflow.entry_point || 'Not set',
+        draft: true,
+      })),
+  ]
 
   // Master Agent state
   const [userPrompt, setUserPrompt] = useState('')
@@ -61,82 +105,6 @@ export default function HomePage() {
   const [isCompiling, setIsCompiling] = useState(false)
   const [compilationStatus, setCompilationStatus] = useState<'idle' | 'success' | 'failed'>('idle')
   const [compilationMessage, setCompilationMessage] = useState('')
-
-  // Map Python WorkflowSchema object format to the Frontend storage format
-  const mapBackendWorkflowToFrontend = useCallback((backendWf: any) => {
-    const defaultLLM = {
-      provider: 'openai' as const,
-      model_name: 'gpt-4o',
-      temperature: 0.7,
-      max_tokens: 4096,
-      api_key_env_var: 'OPENAI_API_KEY',
-    }
-
-    return {
-      id: backendWf.workflow_id,
-      name: backendWf.name || 'Generated Workflow',
-      description: backendWf.description || '',
-      entry_point: backendWf.entry_point || 'agent_1',
-      agents: (backendWf.agents || []).map((agent: any) => ({
-        agent_id: agent.agent_id,
-        role: agent.role || 'Assistant',
-        prompt_template: {
-          template_string: agent.prompt_template?.template_string || 'Process tasks.',
-          input_variables: agent.prompt_template?.input_variables || [],
-        },
-        llm_config: {
-          provider: agent.llm?.provider || defaultLLM.provider,
-          model_name: agent.llm?.model_name || defaultLLM.model_name,
-          temperature: agent.llm?.temperature ?? defaultLLM.temperature,
-          max_tokens: agent.llm?.max_tokens ?? defaultLLM.max_tokens,
-          api_key_env_var: agent.llm?.api_key_env_var || defaultLLM.api_key_env_var,
-        },
-        orchestration_mode: agent.topology?.orchestration_mode === 'agent_driven' ? ('agent-driven' as const) : ('model-driven' as const),
-        tools: agent.tools || [],
-        rag_sources: agent.rag_sources || [],
-        sub_agents: agent.sub_agents || [],
-        consensus_config: agent.consensus_config ? {
-          enabled: agent.consensus_config.enabled ?? false,
-          num_instances: agent.consensus_config.instances ?? 3,
-          agreement_threshold: agent.consensus_config.threshold ?? 0.7,
-        } : undefined,
-      })),
-      edges: (backendWf.edges || []).map((edge: any, index: number) => ({
-        id: `edge_${index}_${Math.random().toString(36).substring(2, 5)}`,
-        source: edge.source,
-        target: edge.target,
-        condition: typeof edge.condition === 'string' 
-          ? edge.condition 
-          : edge.condition?.value !== undefined 
-            ? `state["${edge.condition.field}"] ${edge.condition.operator} "${edge.condition.value}"`
-            : undefined,
-      })),
-      global_tools: (backendWf.tools || []).map((tool: any) => ({
-        id: tool.tool_id,
-        name: tool.name,
-        description: tool.description || '',
-        type: tool.type === 'rest_api' ? ('api' as const) : tool.type === 'mcp' ? ('mcp' as const) : ('function' as const),
-        api_endpoint: tool.config?.endpoint,
-        method: tool.config?.method,
-        api_key_env_var: tool.config?.api_key_env_var,
-        mcp_endpoint: tool.config?.connection_string,
-        code_snippet: tool.config?.code,
-      })),
-      global_rag_sources: (backendWf.rag_sources || []).map((rag: any) => ({
-        id: rag.rag_id,
-        provider: (rag.vector_db || 'qdrant') as any,
-        name: rag.collection_name || 'kb_collection',
-        uri: rag.connection_uri,
-        api_key_env_var: rag.api_key_env_var,
-        embedding_model: rag.embedding_model || 'text-embedding-3-small',
-        top_k: rag.top_k ?? 3,
-        similarity_threshold: rag.similarity_threshold ?? 0.7,
-        hybrid_search: rag.hybrid_search ?? true,
-      })),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-  }, [])
 
   const handleGenerateProposal = async () => {
     if (!userPrompt.trim()) {
@@ -153,18 +121,10 @@ export default function HomePage() {
     setCompilationMessage('')
 
     try {
-      const response = await fetch(`${API_BASE}/workflow/master/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Backend failed to parse the prompt or RAG documentation.')
-      }
-
-      const data = await response.json()
-      if (data.success && data.proposal) {
+      const response = await api.master.generate(userPrompt)
+      if (response.error) throw new Error(response.error)
+      const data = response.data
+      if (data?.success && data.proposal) {
         setProposal(data.proposal)
         setProposalJsonStr(JSON.stringify(data.proposal, null, 2))
         setIsProposalOpen(true)
@@ -175,10 +135,10 @@ export default function HomePage() {
       } else {
         throw new Error('Invalid response structure received from Master Agent.')
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Synthesis Failed',
-        description: error.message || 'Error occurred while querying the Master Agent.',
+        description: error instanceof Error ? error.message : 'Error occurred while querying the Master Agent.',
         variant: 'destructive',
       })
     } finally {
@@ -203,32 +163,28 @@ export default function HomePage() {
     setCompilationStatus('idle')
 
     try {
-      const response = await fetch(`${API_BASE}/workflow/master/compile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsedJson),
-      })
-
-      const data = await response.json()
-      if (response.ok && data.success) {
+      const response = await api.master.compile(parsedJson)
+      if (response.error) throw new Error(response.error)
+      const data = response.data
+      if (data?.success) {
         setCompilationStatus('success')
-        setCompilationMessage('Validation check passed: Workflow is 100% compliant with downstream SDK compiler.')
+        setCompilationMessage(data.message || 'Workflow validation and compilation succeeded.')
         toast({
           title: 'Compilation Passed',
           description: 'Downstream LangGraph application generated successfully.',
         })
       } else {
         setCompilationStatus('failed')
-        setCompilationMessage(data.detail || 'Workflow validation or dependency binding failed.')
+        setCompilationMessage(data?.message || 'Workflow validation or dependency binding failed.')
         toast({
           title: 'Compilation Failed',
           description: 'SDK compiler rejected proposal constraints.',
           variant: 'destructive',
         })
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setCompilationStatus('failed')
-      setCompilationMessage(error.message || 'Failed to connect to gateway compilation pipeline.')
+      setCompilationMessage(error instanceof Error ? error.message : 'Failed to connect to gateway compilation pipeline.')
     } finally {
       setIsCompiling(false)
     }
@@ -259,7 +215,13 @@ export default function HomePage() {
 
     try {
       // Map to frontend stores and save
-      const frontendWf = mapBackendWorkflowToFrontend(parsedJson)
+      const frontendWf = normalizeWorkflowConfig(parsedJson)
+      if (!frontendWf) throw new Error('Compiled workflow could not be converted to the workflow editor format.')
+      const persisted = await api.crud.updateWorkflow(frontendWf.id, {
+        name: frontendWf.name,
+        config: frontendWf,
+      })
+      if (persisted.error) throw new Error(persisted.error)
       
       // Save in local Zustand store
       useWorkflowStore.setState((state) => ({
@@ -271,7 +233,7 @@ export default function HomePage() {
 
       setIsProposalOpen(false)
       setUserPrompt('')
-      mutateDbStatus()
+      void refreshDashboard()
 
       toast({
         title: 'Workflow Saved',
@@ -280,10 +242,10 @@ export default function HomePage() {
 
       // Route directly to workflow builder canvas
       router.push(`/workflows/${frontendWf.id}`)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Failed to Commit',
-        description: error.message || 'Error occurred while saving workspace state.',
+        description: error instanceof Error ? error.message : 'Error occurred while saving workspace state.',
         variant: 'destructive',
       })
     }
@@ -298,28 +260,28 @@ export default function HomePage() {
   const stats = [
     {
       title: 'Total Workflows',
-      value: dbStatus?.collections?.workflows?.toString() || workflowList.length.toString(),
+      value: String(dashboardData?.workflows?.length ?? '—'),
       icon: Workflow,
       color: 'text-primary',
       bgColor: 'bg-primary/10',
     },
     {
       title: 'Global Tools',
-      value: dbStatus?.collections?.tools?.toString() || '0',
+      value: String(dashboardData?.tools?.length ?? '—'),
       icon: Zap,
       color: 'text-success',
       bgColor: 'bg-success/10',
     },
     {
       title: 'Total Executions',
-      value: dbStatus?.collections?.activity?.toString() || '0',
+      value: String(dashboardData?.traces?.length ?? '—'),
       icon: Activity,
       color: 'text-warning',
       bgColor: 'bg-warning/10',
     },
     {
       title: 'RAG Sources',
-      value: dbStatus?.collections?.rag?.toString() || '0',
+      value: String(dashboardData?.ragSources?.length ?? '—'),
       icon: TrendingUp,
       color: 'text-chart-2',
       bgColor: 'bg-chart-2/10',
@@ -390,6 +352,17 @@ export default function HomePage() {
           </CardContent>
         </Card>
 
+        {dashboardError && (
+          <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>Dashboard data could not be loaded: {dashboardError.message}</span>
+              <Button variant="outline" size="sm" onClick={() => void refreshDashboard()}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((stat, index) => (
@@ -429,7 +402,13 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {workflowList.length === 0 ? (
+          {!dashboardData && !dashboardError ? (
+            <Card className="glass-card">
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                Loading workspace workflows…
+              </CardContent>
+            </Card>
+          ) : recentWorkflows.length === 0 ? (
             <Card className="glass-card">
               <CardContent className="p-12 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
@@ -447,7 +426,7 @@ export default function HomePage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {workflowList.slice(0, 6).map((workflow, index) => (
+              {recentWorkflows.slice(0, 6).map((workflow, index) => (
                 <motion.div
                   key={workflow.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -462,7 +441,7 @@ export default function HomePage() {
                             <Workflow className="w-5 h-5 text-primary" />
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            {workflow.agents?.length || 0} agents
+                            {workflow.agents} agents
                           </span>
                         </div>
                         <CardTitle className="text-base mt-3">{workflow.name}</CardTitle>
@@ -473,7 +452,7 @@ export default function HomePage() {
                       <CardContent className="pt-0">
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground text-xs">
-                            Entry: {workflow.entry_point || 'Not set'}
+                            {workflow.draft ? 'Local draft' : `Entry: ${workflow.entryPoint}`}
                           </span>
                           <div className="flex items-center gap-1 text-primary text-xs font-semibold">
                             <Eye className="w-3.5 h-3.5" />
@@ -497,23 +476,31 @@ export default function HomePage() {
               const fileInput = document.createElement('input')
               fileInput.type = 'file'
               fileInput.accept = '.json'
-              fileInput.onchange = (e) => {
-                const file = (e.target as any).files[0]
+              fileInput.onchange = () => {
+                const file = fileInput.files?.[0]
                 if (file) {
                   const reader = new FileReader()
                   reader.onload = (evt) => {
                     const text = evt.target?.result as string
                     try {
                       const data = JSON.parse(text)
-                      const mapped = mapBackendWorkflowToFrontend(data)
+                      const mapped = normalizeWorkflowConfig(data)
+                      if (!mapped) throw new Error('The file does not contain a supported workflow.')
                       useWorkflowStore.setState((state) => ({
                         workflows: { ...state.workflows, [mapped.id]: mapped },
                       }))
                       toast({ title: 'Import Successful', description: `Loaded workflow: ${mapped.name}` })
                       router.push(`/workflows/${mapped.id}`)
-                    } catch {
-                      toast({ title: 'Import Error', description: 'Invalid workflow JSON schema.', variant: 'destructive' })
+                    } catch (error) {
+                      toast({
+                        title: 'Import Error',
+                        description: error instanceof Error ? error.message : 'Invalid workflow JSON schema.',
+                        variant: 'destructive',
+                      })
                     }
+                  }
+                  reader.onerror = () => {
+                    toast({ title: 'Import Error', description: 'The selected workflow file could not be read.', variant: 'destructive' })
                   }
                   reader.readAsText(file)
                 }

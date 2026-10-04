@@ -40,6 +40,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
 import type { ToolConfig, RAGSourceConfig } from '@/lib/types'
+import { RAG_VECTOR_PROVIDER_OPTIONS } from '@/lib/types'
 
 export function RegistryDrawer() {
   const {
@@ -77,7 +78,7 @@ export function RegistryDrawer() {
 
   const handleAddRAGSource = () => {
     const newSource: Omit<RAGSourceConfig, 'id'> = {
-      provider: 'pinecone',
+      provider: 'qdrant',
       name: '',
       uri: '',
       api_key_env_var: '',
@@ -388,12 +389,12 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="pinecone">Pinecone</SelectItem>
-                <SelectItem value="weaviate">Weaviate</SelectItem>
-                <SelectItem value="qdrant">Qdrant</SelectItem>
-                <SelectItem value="chroma">Chroma</SelectItem>
-                <SelectItem value="milvus">Milvus</SelectItem>
-                <SelectItem value="file">File</SelectItem>
+                {!RAG_VECTOR_PROVIDER_OPTIONS.some(({ value }) => value === source.provider) && (
+                  <SelectItem value={source.provider}>{source.provider} (legacy value)</SelectItem>
+                )}
+                {RAG_VECTOR_PROVIDER_OPTIONS.map((provider) => (
+                  <SelectItem key={provider.value} value={provider.value}>{provider.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -436,17 +437,6 @@ function RAGSourceCard({ source, onUpdate, onDelete }: RAGSourceCardProps) {
             placeholder="VECTOR_DB_API_KEY"
           />
         </div>
-        {source.provider === 'file' && (
-          <div>
-            <Label className="text-xs text-muted-foreground">File Path</Label>
-            <Input
-              value={source.file_path || ''}
-              onChange={(e) => onUpdate({ file_path: e.target.value })}
-              className="h-8 text-xs font-mono"
-              placeholder="/path/to/embeddings.json"
-            />
-          </div>
-        )}
 
         <div>
           <Label className="text-xs text-muted-foreground">Embedding Model</Label>

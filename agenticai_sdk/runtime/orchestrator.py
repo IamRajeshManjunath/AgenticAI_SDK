@@ -52,6 +52,11 @@ from agenticai_sdk.rag.context_injector import ContextInjector
 from agenticai_sdk.rag.retriever_engine import KnowledgeRetrieverEngine
 from agenticai_sdk.rag.vector_db_factory import VectorDBClientFactory
 from agenticai_sdk.runtime.llm_factory import LLMClientFactory
+from agenticai_sdk.runtime.agent_schemas import (
+    build_agent_input_payload,
+    validate_agent_input,
+    validate_agent_output,
+)
 from agenticai_sdk.runtime.model_registry import ModelRegistry
 from agenticai_sdk.runtime.tool_registry import ToolRegistry
 from agenticai_sdk.schemas.agent_node import AgentNodeConfig
@@ -135,12 +140,16 @@ class Orchestrator:
         result = await app.ainvoke(initial_state, config=config)
     """
 
-    def __init__(self, model_registry: Optional[ModelRegistry] = None) -> None:
+    def __init__(
+        self,
+        model_registry: Optional[ModelRegistry] = None,
+        checkpointer: Any | None = None,
+    ) -> None:
         self._llm_factory = LLMClientFactory()
         self._tool_registry = ToolRegistry()
         self._vector_db_factory = VectorDBClientFactory()
         self._deep_agents_integration = DeepAgentsIntegration(config=None)  # Config will be set per workflow
-        self._checkpointer = MemorySaver()
+        self._checkpointer = checkpointer if checkpointer is not None else MemorySaver()
         self._fallback_router = FallbackRouter()
         self._consensus_broker = ConsensusBroker(registry=model_registry or ModelRegistry(AgenticAIConfig(
             platform={"name": "agenticai", "environment": "development"},
@@ -469,6 +478,16 @@ class Orchestrator:
                 else:
                     mw_context = await middleware_pipeline.run_before(mw_context)
 
+                validate_agent_input(
+                    local_config,
+                    build_agent_input_payload(
+                        state,
+                        retrieved_context=new_retrieved_context,
+                    ),
+                    workspace_id=state.get("workspace_id"),
+                    workflow_id=workflow_id,
+                )
+
                 # ── Execute agent (with fallback / consensus) ─────────
                 effective_docs = runtime_docs if runtime_docs else retrieved_docs
 
@@ -507,6 +526,13 @@ class Orchestrator:
                         retrieved_docs=effective_docs,
                     )
                     result = await current_runner(state)
+
+                validate_agent_output(
+                    local_config,
+                    result,
+                    workspace_id=state.get("workspace_id"),
+                    workflow_id=workflow_id,
+                )
 
                 # ── Run after-middleware ───────────────────────────────
                 mw_context.payload = result

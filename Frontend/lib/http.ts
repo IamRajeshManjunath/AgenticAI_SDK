@@ -1,257 +1,7 @@
 import { useAuthStore } from './auth-store'
-import { useRouter } from 'next/navigation'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
-// Token refresh state
-let isRefreshing = false
-let refreshPromise: Promise<string | null> | null = null
-
-export interface ApiResponse<T> {
-  data?: T
-  error?: string
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const state = useAuthStore.getState()
-  const token = state.token
-  const apiKey = state.apiKey
-  const workspaceId = state.workspaceId
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  
-  if (state.token) {
-    headers['Authorization'] = `Bearer ${state.token}`
-  }
-  if (state.apiKey) {
-    headers['X-API-Key'] = state.apiKey
-  }
-  if (state.workspaceId) {
-    headers['X-Workspace-ID'] = state.workspaceId
-  }
-  return headers
-}
-
-let isRefreshing = false
-let refreshPromise: Promise<string | null> | null = null
-
-async function refreshAccessToken(): Promise<string | null> {
-  const { refreshToken, logout } = useAuthStore.getState()
-  if (!refreshToken) {
-    return null
-  }
-
-  // Prevent multiple simultaneous refresh attempts
-  if (isRefreshing) {
-    return refreshPromise!
-  }
-
-  isRefreshing = true
-  refreshPromise = (async () => {
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: useAuthStore.getState().refreshToken }),
-      })
-
-      if (!res.ok) {
-        // Refresh failed - logout user
-        const { logout } = useAuthStore.getState()
-        logout()
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login'
-        }
-        return null
-      }
-
-      const data = await res.json()
-      const { setTokens } = useAuthStore.getState()
-      setTokens(data.access_token, data.refresh_token)
-      return data.access_token
-    } catch {
-      const { logout } = useAuthStore.getState()
-      logout()
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login'
-      }
-      return null
-    } finally {
-      // This will be set to false in the finally block of the caller
-    }
-  })()
-
-  return refreshPromise
-}
-
-export interface ApiResponse<T> {
-  data?: T
-  error?: string
-}
-
-async function fetchWithAuth<T>(
-  endpoint: string,
-  options: RequestInit = {},
-  retryCount = 0
-): Promise<{ data?: T; error?: string }> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-  
-  const makeRequest = async (): Promise<Response> => {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(typeof window !== 'undefined' ? {
-        'Authorization': `Bearer ${useAuthStore.getState().token}`,
-        'X-API-Key': useAuthStore.getState().apiKey || '',
-        'X-Workspace-ID': useAuthStore.getState().workspaceId || '',
-      } : {}),
-    }
-
-    return fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-  }
-
-  try {
-    const authHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    
-    const state = typeof window !== 'undefined' ? useAuthStore.getState() : { token: null, apiKey: null, workspaceId: null }
-    if (state.token) {
-      headers['Authorization'] = `Bearer ${state.token}`
-    }
-    if (state.apiKey) {
-      headers['X-API-Key'] = state.apiKey
-    }
-    if (state.workspaceId) {
-      headers['X-Workspace-ID'] = state.workspaceId
-    }
-
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-    })
-
-    // Handle 401 - try to refresh token and retry once
-    if (response.status === 401) {
-      // Try to refresh token
-      const newToken = await refreshAccessToken()
-      if (newToken) {
-        // Retry the request with new token
-        return fetchWithAuth(endpoint, options, retryCount + 1)
-      }
-    }
-
-    if (!response.ok) {
-      const error = await response.text()
-      return { error: error || `HTTP error ${response.status}` }
-    }
-
-    if (response.status === 204) {
-      return { data: undefined as any }
-    }
-
-    const data = await response.json()
-    return { data }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : 'Unknown error' }
-  }
-
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = useAuthStore.getState().refreshToken
-  if (!refreshToken) return null
-
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: useAuthStore.getState().refreshToken }),
-    })
-
-    if (!res.ok) {
-      const { logout } = useAuthStore.getState()
-      logout()
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login'
-      }
-      return null
-    }
-
-    const data = await res.json()
-    const { setTokens } = useAuthStore.getState()
-    setTokens(data.access_token, data.refresh_token)
-    return data.access_token
-  } catch {
-    const { logout } = useAuthStore.getState()
-    logout()
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login'
-    }
-    return null
-  }
-}
-
-export async function fetchApi<T>(
-  endpoint: string,
-  options: RequestInit = {},
-  retryCount = 0
-): Promise<{ data?: T; error?: string }> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-  
-  const getAuthHeaders = (): Record<string, string> => {
-    const state = useAuthStore.getState()
-    const headers: Record<string, string> = {}
-    if (state.token) headers['Authorization'] = `Bearer ${state.token}`
-    if (state.apiKey) headers['X-API-Key'] = state.apiKey
-    if (state.workspaceId) headers['X-Workspace-ID'] = state.workspaceId
-    return headers
-  }
-
-  const makeRequest = async (): Promise<Response> => {
-    return fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-        ...options.headers,
-      },
-    })
-  }
-
-  try {
-    const response = await makeRequest()
-
-    // Handle 401 - try to refresh token and retry once
-    if (response.status === 401 && retryCount === 0) {
-      const newToken = await refreshAccessToken()
-      if (newToken) {
-        return fetchApi(endpoint, options, retryCount + 1)
-      }
-    }
-
-    if (!response.ok) {
-      const error = await response.text()
-      return { error: error || `HTTP error ${response.status}` }
-    }
-
-    if (response.status === 204) {
-      return { data: undefined as T }
-    }
-
-    const data = await response.json()
-    return { data }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : 'Unknown error' }
-  }
-}
-
-// Typed API responses
 export interface ApiResponse<T> {
   data?: T
   error?: string
@@ -269,7 +19,7 @@ export interface HITLApprovalRequest {
 }
 
 export interface TraceResponse {
-  spans: any[]
+  spans: unknown[]
 }
 
 export interface MetricsResponse {
@@ -283,7 +33,6 @@ export interface MetricsResponse {
   consensus_score?: number
 }
 
-// Config types
 export interface ConfigResponse {
   platform: Record<string, unknown>
   integrations: Record<string, unknown>
@@ -302,4 +51,75 @@ export interface ConfigSchemaResponse {
   required: string[]
 }
 
-export { fetchApi }
+let refreshPromise: Promise<string | null> | null = null
+
+async function refreshAccessToken(): Promise<string | null> {
+  const { refreshToken, logout, setTokens } = useAuthStore.getState()
+  if (!refreshToken) return null
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        })
+
+        if (!response.ok) {
+          logout()
+          return null
+        }
+
+        const data: { access_token: string; refresh_token: string } = await response.json()
+        setTokens(data.access_token, data.refresh_token)
+        return data.access_token
+      } catch {
+        logout()
+        return null
+      } finally {
+        refreshPromise = null
+      }
+    })()
+  }
+
+  return refreshPromise
+}
+
+export async function fetchApi<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retryCount = 0
+): Promise<ApiResponse<T>> {
+  const headers = new Headers(options.headers)
+  const { token, apiKey, workspaceId } = useAuthStore.getState()
+
+  if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (apiKey) headers.set('X-API-Key', apiKey)
+  if (workspaceId) headers.set('X-Workspace-ID', workspaceId)
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    })
+
+    if (response.status === 401 && retryCount === 0) {
+      const newToken = await refreshAccessToken()
+      if (newToken) return fetchApi(endpoint, options, 1)
+    }
+
+    if (!response.ok) {
+      const error = await response.text()
+      return { error: error || `HTTP error ${response.status}` }
+    }
+
+    if (response.status === 204) return { data: undefined }
+    return { data: await response.json() as T }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}

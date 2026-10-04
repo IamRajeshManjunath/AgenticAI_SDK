@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { RefreshCw, Plus, Edit, Trash2, Database, ExternalLink, Eye, Save, AlertCircle, CheckCircle2, Plus } from 'lucide-react'
+import { RefreshCw, Plus, Edit, Trash2, Database, ExternalLink, Eye, Save, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth-store'
 import { useWorkflowStore } from '@/lib/store'
@@ -197,13 +197,13 @@ export default function DatabaseRoutesPage() {
   ]
 
   const providerOptions: Record<string, string[]> = {
-    checkpointer: ['postgresql', 'sqlite', 'redis'],
-    store: ['postgresql', 'redis', 'mongodb'],
-    vector_store: ['qdrant', 'pinecone', 'weaviate', 'chroma', 'milvus', 'pgvector'],
-    analytics: ['clickhouse', 'postgresql', 'bigquery', 'snowflake'],
-    audit_log: ['postgresql', 'clickhouse', 'elasticsearch'],
-    cache: ['redis', 'memcached', 'valkey'],
-    rate_limit: ['redis', 'valkey'],
+    checkpointer: ['postgresql', 'sqlite'],
+    store: ['postgresql', 'sqlite'],
+    vector_store: ['postgresql', 'sqlite'],
+    analytics: ['postgresql', 'sqlite'],
+    audit_log: ['postgresql', 'sqlite'],
+    cache: ['postgresql', 'sqlite'],
+    rate_limit: ['postgresql', 'sqlite'],
   }
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -305,8 +305,7 @@ export default function DatabaseRoutesPage() {
               </Button>
             </div>
           )}
-        </>
-      </div>
+        </>)}
 
       {/* Create/Edit Dialog */}
       <div className="fixed inset-0 z-50 overflow-y-auto" style={{ display: editingRoute ? 'block' : 'none' }}>
@@ -342,6 +341,9 @@ export default function DatabaseRoutesPage() {
                 <Select value={formData.provider} onValueChange={(v) => setFormData(prev => ({ ...prev, provider: v }))} disabled={purposeProviders.length === 0}>
                   <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
                   <SelectContent>
+                    {!purposeProviders.includes(formData.provider) && formData.provider && (
+                      <SelectItem value={formData.provider}>{formData.provider} (legacy value)</SelectItem>
+                    )}
                     {purposeProviders.map((p) => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
                     ))}
@@ -385,9 +387,7 @@ export default function DatabaseRoutesPage() {
             </form>
           </div>
         </div>
-      )}
-    </>
+      </div>
+    </div>
   )
 }
-
-export default DatabaseRoutesPage

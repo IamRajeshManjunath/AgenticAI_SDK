@@ -31,7 +31,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useWorkflowStore } from '@/lib/store'
 import { useAuthStore } from '@/lib/auth-store'
-import { workflowApi } from '@/lib/api'
+import { crudApi, workflowApi } from '@/lib/api'
 import { AgentNode } from './agent-node'
 import { Button } from '@/components/ui/button'
 import {
@@ -102,6 +102,7 @@ export function WorkflowCanvas({
   const [runDialogOpen, setRunDialogOpen] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
@@ -496,6 +497,48 @@ export function WorkflowCanvas({
     setRunDialogOpen(true)
   }, [workflowId, validateWorkflow, toast])
 
+  const persistWorkflow = useCallback(async () => {
+    const currentWorkflow = useWorkflowStore.getState().workflows[workflowId]
+    if (!currentWorkflow) throw new Error('Workflow is no longer available in this workspace.')
+
+    const existing = await crudApi.getWorkflow(workflowId)
+    if (existing.data) {
+      const updated = await crudApi.updateWorkflow(workflowId, {
+        name: currentWorkflow.name,
+        config: currentWorkflow,
+      })
+      if (updated.error) throw new Error(updated.error)
+      return
+    }
+    if (existing.status !== 404) {
+      throw new Error(existing.error || 'Unable to verify whether this workflow is already saved.')
+    }
+
+    const created = await crudApi.createWorkflow({
+      id: currentWorkflow.id,
+      name: currentWorkflow.name,
+      description: currentWorkflow.description,
+      config: currentWorkflow,
+    })
+    if (created.error) throw new Error(created.error)
+  }, [workflowId])
+
+  const handleSave = useCallback(async () => {
+    setIsSaving(true)
+    try {
+      await persistWorkflow()
+      toast({ title: 'Workflow saved', description: 'Your workflow is now saved to the active workspace.' })
+    } catch (error) {
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'The workflow could not be saved.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [persistWorkflow, toast])
+
   const handleRunExecute = useCallback(async () => {
     if (!runInput.trim()) {
       toast({ title: 'Input Required', description: 'Enter an input message for the workflow', variant: 'destructive' })
@@ -503,12 +546,16 @@ export function WorkflowCanvas({
     }
     setIsRunning(true)
     try {
+      await persistWorkflow()
       const workflowSchema = useWorkflowStore.getState().workflows[workflowId]
       const result = await workflowApi.run(workflowSchema, runInput)
       if (result.error) {
         toast({ title: 'Run Failed', description: result.error, variant: 'destructive' })
       } else {
-        toast({ title: 'Workflow Started', description: `Execution status: ${result.data?.status}` })
+        toast({
+          title: 'Workflow Queued',
+          description: `Run ${result.data?.run_id} is ${result.data?.status}. Ensure a workflow worker is running to execute it.`,
+        })
         setRunDialogOpen(false)
       }
     } catch (err) {
@@ -516,7 +563,7 @@ export function WorkflowCanvas({
     } finally {
       setIsRunning(false)
     }
-  }, [workflowId, runInput, toast])
+  }, [workflowId, runInput, toast, persistWorkflow])
 
   return (
     <div className="w-full h-full relative">
@@ -626,6 +673,16 @@ export function WorkflowCanvas({
 
         {/* Action Panel */}
         <Panel position="top-right" className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSave}
+            disabled={isSaving || isRunning}
+            className="gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {isSaving ? 'Saving…' : 'Save'}
+          </Button>
           <Button
             variant="outline"
             size="sm"

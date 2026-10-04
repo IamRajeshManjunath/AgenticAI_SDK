@@ -1,381 +1,282 @@
-"""FastAPI route handlers for workflow run management.
-
-Endpoints:
-  POST /api/v1/runs              — execute a workflow (with idempotency)
-  GET  /api/v1/runs/{run_id}     — get run status and results
-  POST /api/v1/runs/{run_id}/cancel — cancel a running workflow
-  POST /api/v1/runs/{run_id}/resume — resume a paused workflow
-  GET  /api/v1/runs/{run_id}/events — stream execution events (SSE)
-"""
+"""Workspace-scoped workflow job API backed by the shared SQL database."""
 
 from __future__ import annotations
 
-import uuid
-from typing import Any, Dict, List, Optional
+import asyncio
+import json
+from datetime import datetime, timezone
+from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, model_validator
+from pydantic import ValidationError
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from agenticai_sdk.auth.dependencies import get_current_workspace
 from agenticai_sdk.auth.permissions import require_permission
-from agenticai_sdk.db import get_session, Workspace
-from agenticai_sdk.db.models import WorkflowRun
-from agenticai_sdk.runtime import RunManager
-from agenticai_sdk.runtime.orchestrator import Orchestrator
-from agenticai_sdk.compiler import Compiler
+from agenticai_sdk.db import get_session
+from agenticai_sdk.db.models import User, Workflow, WorkflowJob
+from agenticai_sdk.runtime.job_queue import IdempotencyConflictError, enqueue_job
 from agenticai_sdk.schemas.workflow import WorkflowSchema
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
-_orchestrator = Orchestrator()
-_compiler = Compiler()
-
-
-# ── Request/Response Models ──────────────────────────────────────────────────
-
 
 class RunRequest(BaseModel):
-    workflow: WorkflowSchema = Field(...)
+    workflow_id: str | None = None
+    workflow: WorkflowSchema | None = None
     input_message: str = Field(..., min_length=1)
-    thread_id: Optional[str] = None
-    initial_state: Optional[Dict[str, Any]] = None
-    workflow_revision_id: Optional[str] = None
+    initial_state: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_workflow_reference(self) -> "RunRequest":
+        if not self.workflow_id and not self.workflow:
+            raise ValueError("workflow_id or workflow is required")
+        return self
+
+    @property
+    def resolved_workflow_id(self) -> str:
+        if self.workflow_id:
+            return self.workflow_id
+        if self.workflow is None:
+            raise ValueError("workflow_id or workflow is required")
+        return self.workflow.workflow_id
 
 
-class RunResponse(BaseModel):
+class RunAcceptedResponse(BaseModel):
     run_id: str
     thread_id: str
     status: str
-    messages: List[Dict[str, Any]]
-    scratchpad: Dict[str, Any]
-    retrieved_context: List[Dict[str, Any]]
-    inner_thoughts: List[Dict[str, Any]]
-    next_step: Optional[str]
-    duration_ms: int
-    token_usage: Dict[str, Any]
-    checkpoint_id: Optional[str]
-
-
-class RunStatusResponse(BaseModel):
-    run_id: str
-    thread_id: str
-    status: str
-    checkpoint_id: Optional[str]
-    current_node: Optional[str]
-    iteration: int
-    created_at: Optional[str]
+    status_url: str
+    events_url: str
 
 
 class ResumeRequest(BaseModel):
-    state_updates: Optional[Dict[str, Any]] = None
+    state_updates: dict[str, Any] = Field(default_factory=dict)
 
 
-# ── Helper Functions ─────────────────────────────────────────────────────────
+class RunStatusResponse(RunAcceptedResponse):
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
-def get_if_match(request: Request) -> Optional[str]:
-    """Extract If-Match header for optimistic concurrency."""
-    return request.headers.get("If-Match")
+def _workspace_id(request: Request) -> str:
+    workspace_id = getattr(request.state, "workspace_id", None)
+    if not workspace_id:
+        raise HTTPException(status_code=400, detail="No workspace context found")
+    return workspace_id
 
 
-def get_idempotency_key(request: Request) -> Optional[str]:
-    """Extract Idempotency-Key header for execution deduplication."""
-    return request.headers.get("Idempotency-Key")
+def _response(job: WorkflowJob) -> RunStatusResponse:
+    return RunStatusResponse(
+        run_id=job.id,
+        thread_id=job.thread_id,
+        status=job.status,
+        status_url=f"/api/v1/runs/{job.id}",
+        events_url=f"/api/v1/runs/{job.id}/events",
+        result=job.result,
+        error=job.error,
+        created_at=job.created_at.isoformat() if job.created_at else None,
+        updated_at=job.updated_at.isoformat() if job.updated_at else None,
+    )
 
 
-def check_if_match(if_match: Optional[str], current_revision: int) -> None:
-    """Validate If-Match header against current revision."""
-    if if_match is None:
-        return
-    try:
-        expected = int(if_match.strip('"'))
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid If-Match header: {if_match}. Must be integer revision number."
-        )
-    if expected != current_revision:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "WORKFLOW_REVISION_CONFLICT",
-                "message": "Workflow was modified by another operation.",
-                "request_id": str(uuid.uuid4()),
-                "details": {
-                    "expected_revision": expected,
-                    "current_revision": current_revision
-                }
-            }
-        )
-
-
-def check_idempotency_key(db: Session, idempotency_key: Optional[str], workspace_id: str) -> Optional[str]:
-    """Check if idempotency key was already used."""
-    if not idempotency_key:
-        return None
-    existing = db.query(WorkflowRun).filter(
-        WorkflowRun.workspace_id == workspace_id,
-        WorkflowRun.idempotency_key == idempotency_key
+def _get_job(db: Session, run_id: str, workspace_id: str) -> WorkflowJob:
+    job = db.query(WorkflowJob).filter(
+        WorkflowJob.id == run_id,
+        WorkflowJob.workspace_id == workspace_id,
     ).first()
-    if existing:
-        return existing.id
-    return None
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return job
 
 
-def _serialize_messages(messages: list) -> list[dict[str, Any]]:
-    serialized = []
-    for msg in messages:
-        entry: dict[str, Any] = {
-            "type": getattr(msg, "type", type(msg).__name__.lower()),
-            "content": getattr(msg, "content", str(msg)),
-        }
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            entry["tool_calls"] = msg.tool_calls
-        if hasattr(msg, "additional_kwargs") and msg.additional_kwargs:
-            entry["additional_kwargs"] = msg.additional_kwargs
-        serialized.append(entry)
-    return serialized
-
-
-# ── Route Handlers ───────────────────────────────────────────────────────────
-
-
-@router.post("", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RunAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_run(
     request: Request,
     request_body: RunRequest,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    _: Any = Depends(require_permission("workflow:run")),
-):
-    """Execute a workflow with idempotency and checkpointing."""
-    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
-    log = logger.bind(request_id=request_id)
-
-    db = next(get_session())
+    db: Session = Depends(get_session),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _: User = Depends(require_permission("workflow:run")),
+) -> RunAcceptedResponse:
+    """Persist an execution request and return without running model calls inline."""
+    workspace_id = _workspace_id(request)
+    workflow_id = request_body.resolved_workflow_id
+    workflow = db.query(Workflow).filter(
+        Workflow.id == workflow_id,
+        Workflow.workspace_id == workspace_id,
+    ).first()
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow.config:
+        raise HTTPException(status_code=400, detail="Workflow has no saved configuration")
     try:
-        workspace_id = getattr(request.state, "workspace_id", "default")
+        validated_workflow = WorkflowSchema.model_validate(workflow.config)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-        # Check idempotency key
-        existing_run_id = check_idempotency_key(db, idempotency_key, workspace_id)
-        if existing_run_id:
-            log.info("idempotent_request_detected", existing_run_id=existing_run_id)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "IDEMPOTENCY_KEY_EXISTS",
-                    "message": "Request with this Idempotency-Key has already been processed.",
-                    "existing_run_id": existing_run_id
-                }
-            )
+    workflow_scope = getattr(request.state, "workflow_key_scope", None)
+    if workflow_scope and workflow_scope != workflow_id:
+        raise HTTPException(status_code=403, detail="API key not scoped to this workflow")
 
-        # Get workflow
-        workflow_scope = getattr(request.state, "workflow_key_scope", None)
-        if workflow_scope:
-            wf_id = workflow_scope
-        elif request_body.workflow.workflow_id:
-            wf_id = request_body.workflow.workflow_id
-        else:
-            raise HTTPException(status_code=400, detail="workflow_id required")
-
-        log = log.bind(workflow_id=wf_id)
-        wf = db.query(Workflow).filter(Workflow.id == wf_id, Workflow.workspace_id == request.state.workspace_id).first()
-        if not wf:
-            raise HTTPException(status_code=404, detail="Workflow not found")
-        if not wf.config:
-            raise HTTPException(status_code=400, detail="Workflow has no config — compile it first")
-
-        # Check idempotency key for workflow run
-        if idempotency_key:
-            existing_run = db.query(WorkflowRun).filter(
-                WorkflowRun.workspace_id == workspace_id,
-                WorkflowRun.idempotency_key == idempotency_key
-            ).first()
-            if existing_run:
-                log.info("idempotent_run_detected", existing_run_id=existing_run.id)
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "code": "IDEMPOTENCY_KEY_EXISTS",
-                        "message": "Request with this Idempotency-Key has already been processed.",
-                        "existing_run_id": existing_run.id
-                    }
-                )
-
-        schema = WorkflowSchema(**wf.config)
-        input_message = request_body.input_message
-        thread_id = request_body.thread_id or str(uuid.uuid4())
-        scratchpad = request_body.initial_state.get("scratchpad", {}) if request_body.initial_state else {}
-
-        log.info("run_started", thread_id=thread_id, input_preview=input_message[:100])
-
-        # Execute with checkpointing
-        from agenticai_sdk.runtime import RunManager
-        run_manager = RunManager(Orchestrator(), Compiler())
-        result = await run_manager.run(
-            workflow=WorkflowSchema(**wf.config),
-            input_message=input_message,
-            thread_id=thread_id,
-            initial_state={"scratchpad": scratchpad} if scratchpad else None,
-            workflow_revision_id=request_body.workflow_revision_id,
-        )
-
-        # Record run in database
-        run_id = str(uuid.uuid4())
-        run_record = WorkflowRun(
-            id=run_id,
+    try:
+        job, created = enqueue_job(
+            db,
             workspace_id=workspace_id,
-            workflow_id=wf.id,
-            thread_id=thread_id,
-            status="completed",
+            workflow_id=workflow.id,
+            workflow_config=validated_workflow.model_dump(mode="json"),
+            input_message=request_body.input_message,
+            initial_state=request_body.initial_state,
             idempotency_key=idempotency_key,
-            input={"input_message": input_message, "thread_id": thread_id},
-            output={"status": "completed", "messages_count": len(result.get("messages", []))},
-            duration_ms=result.get("duration_ms", 0),
-            total_input_tokens=result.get("token_usage", {}).get("input_tokens", 0),
-            total_output_tokens=result.get("token_usage", {}).get("output_tokens", 0),
-            total_cost_usd=0.0,
         )
-        db.add(run_record)
-        db.commit()
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        return RunResponse(
-            run_id=run_id,
-            thread_id=result["thread_id"],
-            status=result["status"],
-            messages=result["messages"],
-            scratchpad=result["scratchpad"],
-            retrieved_context=result["retrieved_context"],
-            inner_thoughts=result["inner_thoughts"],
-            next_step=result.get("next_step"),
-            duration_ms=result.get("duration_ms", 0),
-            token_usage=result.get("token_usage", {}),
-            checkpoint_id=result.get("checkpoint_id"),
-        )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        log.error("run_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Workflow execution failed: {exc}")
-    finally:
-        db.close()
+    if created:
+        logger.info("workflow_job_queued", job_id=job.id, workflow_id=workflow_id, workspace_id=workspace_id)
+    return RunAcceptedResponse(
+        run_id=job.id,
+        thread_id=job.thread_id,
+        status=job.status,
+        status_url=f"/api/v1/runs/{job.id}",
+        events_url=f"/api/v1/runs/{job.id}/events",
+    )
 
 
 @router.get("/{run_id}", response_model=RunStatusResponse)
 async def get_run_status(
     run_id: str,
     request: Request,
-    _: Any = Depends(require_permission("workflow:read")),
-):
-    """Get current run status from checkpoint."""
-    # For now, return basic status - would integrate with RunManager for full status
-    db = next(get_session())
-    try:
-        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
-        
-        return RunStatusResponse(
-            run_id=run.id,
-            thread_id=run.thread_id,
-            status=run.status,
-            checkpoint_id=None,  # Would come from checkpoint
-            current_node=None,
-            iteration=0,
-            created_at=run.created_at.isoformat() if run.created_at else None,
-        )
-    finally:
-        db.close()
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:read")),
+) -> RunStatusResponse:
+    return _response(_get_job(db, run_id, _workspace_id(request)))
 
 
-@router.post("/{run_id}/cancel", response_model=Dict[str, Any])
+@router.post("/{run_id}/cancel", response_model=RunStatusResponse)
 async def cancel_run(
     run_id: str,
     request: Request,
-    _: Any = Depends(require_permission("workflow:cancel")),
-):
-    """Cancel a running workflow."""
-    db = next(get_session())
-    try:
-        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
-        
-        run.status = "cancelled"
-        db.commit()
-        
-        return {"success": True, "message": "Run cancelled"}
-    finally:
-        db.close()
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:cancel")),
+) -> RunStatusResponse:
+    job = _get_job(db, run_id, _workspace_id(request))
+    result = db.execute(
+        update(WorkflowJob)
+        .where(
+            WorkflowJob.id == run_id,
+            WorkflowJob.workspace_id == job.workspace_id,
+            WorkflowJob.status == "pending",
+        )
+        .values(
+            status="cancelled",
+            updated_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        job = _get_job(db, run_id, job.workspace_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only queued runs can be cancelled; current status is '{job.status}'.",
+        )
+    db.commit()
+    return _response(_get_job(db, run_id, job.workspace_id))
 
 
-@router.post("/{run_id}/resume", response_model=RunResponse)
+@router.post("/{run_id}/resume", response_model=RunStatusResponse)
 async def resume_run(
     run_id: str,
-    request_body: ResumeRequest,
+    body: ResumeRequest,
     request: Request,
-    _: Any = Depends(require_permission("workflow:run")),
-):
-    """Resume a paused workflow from checkpoint."""
-    db = next(get_session())
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:run")),
+) -> RunStatusResponse:
+    job = _get_job(db, run_id, _workspace_id(request))
+    if job.status != "paused":
+        raise HTTPException(status_code=409, detail=f"Run is not paused; current status is '{job.status}'.")
+    from agenticai_sdk.runtime.job_checkpointer import durable_checkpointer
+
     try:
-        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
-        
-        wf = db.query(Workflow).filter(Workflow.id == run.workflow_id).first()
-        if not wf:
-            raise HTTPException(status_code=404, detail="Workflow not found")
-        
-        if not wf.config:
-            raise HTTPException(status_code=400, detail="Workflow has no config")
-        
-        schema = WorkflowSchema(**wf.config)
-        
-        from agenticai_sdk.runtime import RunManager
-        run_manager = RunManager(Orchestrator(), Compiler())
-        result = await run_manager.resume(
-            thread_id=run.thread_id,
-            workflow=WorkflowSchema(**wf.config),
-            state_updates=request_body.state_updates,
+        async with durable_checkpointer() as checkpointer:
+            checkpoint = await checkpointer.aget_tuple(
+                {"configurable": {"thread_id": job.thread_id}}
+            )
+    except (ImportError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=f"Durable checkpoint storage is unavailable: {exc}") from exc
+    if checkpoint is None:
+        raise HTTPException(status_code=409, detail="No durable checkpoint exists for this run.")
+
+    result = db.execute(
+        update(WorkflowJob)
+        .where(
+            WorkflowJob.id == run_id,
+            WorkflowJob.workspace_id == job.workspace_id,
+            WorkflowJob.status == "paused",
         )
-        
-        return RunResponse(
-            run_id=run_id,
-            thread_id=result["thread_id"],
-            status=result["status"],
-            messages=result["messages"],
-            scratchpad=result["scratchpad"],
-            retrieved_context=result["retrieved_context"],
-            inner_thoughts=result["inner_thoughts"],
-            next_step=result.get("next_step"),
-            duration_ms=result.get("duration_ms", 0),
-            token_usage=result.get("token_usage", {}),
-            checkpoint_id=result.get("checkpoint_id"),
+        .values(
+            initial_state=body.state_updates,
+            resume=1,
+            status="pending",
+            error=None,
+            result=None,
+            worker_id=None,
+            claimed_at=None,
+            completed_at=None,
+            updated_at=datetime.now(timezone.utc),
         )
-    finally:
-        db.close()
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        current_job = _get_job(db, run_id, job.workspace_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run is not paused; current status is '{current_job.status}'.",
+        )
+    db.commit()
+    return _response(_get_job(db, run_id, job.workspace_id))
 
 
 @router.get("/{run_id}/events")
 async def stream_run_events(
     run_id: str,
     request: Request,
-    _: Any = Depends(require_permission("workflow:read")),
-):
-    """Stream execution events via SSE."""
-    from fastapi.responses import StreamingResponse
-    
+    db: Session = Depends(get_session),
+    _: User = Depends(require_permission("workflow:read")),
+) -> StreamingResponse:
+    workspace_id = _workspace_id(request)
+    _get_job(db, run_id, workspace_id)
+
     async def event_generator():
-        # This would stream events from the run's checkpoint
-        # For now, return a placeholder
-        yield f"data: {{\"type\": \"status\", \"status\": \"running\"}}\n\n"
-    
+        last_version: tuple[str, str | None] | None = None
+        while not await request.is_disconnected():
+            event_db = next(get_session())
+            try:
+                job = event_db.query(WorkflowJob).filter(
+                    WorkflowJob.id == run_id,
+                    WorkflowJob.workspace_id == workspace_id,
+                ).first()
+                if job is None:
+                    yield "event: error\ndata: {\"detail\":\"Run not found\"}\n\n"
+                    return
+                updated = job.updated_at
+                if updated and updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                version = (job.status, updated.isoformat() if updated else None)
+                if version != last_version:
+                    payload = _response(job).model_dump(mode="json")
+                    yield f"event: status\ndata: {json.dumps(payload)}\n\n"
+                    last_version = version
+                if job.status in {"completed", "failed", "cancelled", "paused"}:
+                    return
+            finally:
+                event_db.close()
+            await asyncio.sleep(1)
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-# Register the router
-# Note: This needs to be added to gateway/routes/__init__.py

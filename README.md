@@ -198,6 +198,12 @@ export QDRANT_API_KEY="your-qdrant-key"
 # HITL Webhooks (optional)
 export HITL_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
 export HITL_TEAMS_WEBHOOK_URL="https://outlook.office.com/webhook/..."
+
+# Production only: use independent, randomly generated values from a secrets manager.
+export APP_ENV="production"
+export SECRET_KEY="<at least 32 random bytes for JWT signing>"
+export SECRETS_ENCRYPTION_KEY="<dedicated key, at least 32 random bytes>"
+export CORS_ORIGINS="https://app.example.com"
 ```
 
 ### 3. Start the Gateway
@@ -208,7 +214,17 @@ python main.py
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 4. Execute a Workflow
+### 4. Start a Workflow Worker
+
+Queued workflow runs are persisted by the gateway and executed by a separate worker. Run one or more workers against the same configured database:
+
+```bash
+python -m agenticai_sdk.worker
+```
+
+The worker is required for runs submitted to `POST /api/v1/runs`, including runs started from the workflow canvas. For PostgreSQL checkpoint persistence, install the project's PostgreSQL optional dependencies as well.
+
+### 5. Execute a Workflow
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/workflow/run \
@@ -309,14 +325,21 @@ Integrated with the industry-standard monitoring stack.
 Pre-calculates token/dollar estimates before API calls. Enforces per-call token limits, cumulative workflow cost caps, loop iteration guards, and wall-clock timeouts.
 
 ### Strict JSON Schema Enforcement
-Define `input_schema` and `output_schema` directly in your agent configuration. The middleware blocks invalid data before it hits your LLM and audits the results after.
+Define optional `input_schema` and `output_schema` JSON Schema contracts for each agent in the workflow editor. The runtime validates a JSON-safe input envelope before invoking the agent and parses/validates the final assistant response as JSON when an output schema is configured. Invalid input, non-JSON output, or schema mismatches fail that agent step. This validates output but does not guarantee provider-native constrained decoding. See [Per-Agent JSON Schema Contracts](docs/agent_json_schemas.md) for the contract, migration, and audit details.
 
 ```json
 {
   "agent_id": "data_processor",
   "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "properties": { "id": { "type": "integer" } }
+    "required": ["input_message"],
+    "properties": { "input_message": { "type": "string" } }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["answer"],
+    "properties": { "answer": { "type": "string" } }
   }
 }
 ```

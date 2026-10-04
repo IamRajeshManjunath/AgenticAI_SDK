@@ -400,7 +400,7 @@ export default function SecretsPage() {
                       <div className="pt-3 border-t space-y-2">
                         <p className="text-xs font-medium text-muted-foreground">Usage examples</p>
                         <pre className="bg-muted p-2 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
-curl -H "X-API-Key: {newApiKeyResult.key}" \<br/>  {API_BASE_URL}/workflow/workflows/{{id}}/run</pre>
+curl -H "X-API-Key: {newApiKeyResult.key}" \<br/>  {API_BASE_URL}/workflow/workflows/{'{id}'}/run</pre>
                         <pre className="bg-muted p-2 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
 curl -H "X-API-Key: {newApiKeyResult.key}" \<br/>  {API_BASE_URL}/observability/traces</pre>
                         <p className="text-xs text-muted-foreground flex items-start gap-1">

@@ -56,23 +56,32 @@ class LLMClientFactory:
     def create(self, config: LLMConfig) -> BaseChatModel:
         """Create LLM from legacy LLMConfig."""
         try:
-            api_key = self._resolve_api_key(config)
-            
-            if config.provider == LLMProvider.OPENAI:
+            provider = config.provider.value if isinstance(config.provider, LLMProvider) else config.provider
+
+            if provider in {LLMProvider.OPENAI.value, LLMProvider.ANTHROPIC.value, LLMProvider.OLLAMA.value}:
+                api_key = self._resolve_api_key(config)
+
+            if provider == LLMProvider.OPENAI.value:
                 model = self._create_openai(config, api_key)
-            elif config.provider == LLMProvider.ANTHROPIC:
+            elif provider == LLMProvider.ANTHROPIC.value:
                 model = self._create_anthropic(config, api_key)
-            elif config.provider == LLMProvider.OLLAMA:
+            elif provider == LLMProvider.OLLAMA.value:
                 model = self._create_ollama(config)
             else:
-                raise LLMProviderError(
-                    f"Unsupported LLM provider: {config.provider}",
-                    detail={"provider": config.provider.value},
+                plugin_config = ChatModelConfig(
+                    provider=provider,
+                    model=config.model_name,
+                    temperature=config.temperature,
+                    timeout=config.request_timeout,
+                    max_retries=config.max_retries,
+                    api_key_env=config.api_key_env_var,
+                    config={"api_key_env": config.api_key_env_var},
                 )
+                model = self.create_from_config(plugin_config)
             
             logger.info(
                 "llm_client_created",
-                provider=config.provider.value,
+                provider=provider,
                 model=config.model_name,
                 temperature=config.temperature,
             )
@@ -82,8 +91,8 @@ class LLMClientFactory:
             raise
         except Exception as exc:
             raise LLMProviderError(
-                f"Failed to create LLM client for provider '{config.provider.value}': {exc}",
-                detail={"provider": config.provider.value, "model": config.model_name, "error": str(exc)},
+                f"Failed to create LLM client for provider '{config.provider}': {exc}",
+                detail={"provider": str(config.provider), "model": config.model_name, "error": str(exc)},
             ) from exc
     
     def get_provider_features(self, provider: LLMProvider) -> FeatureFlags:
@@ -177,11 +186,12 @@ class LLMClientFactory:
     def _resolve_api_key(self, config: LLMConfig) -> str | None:
         """Read the API key from the environment."""
         key = os.getenv(config.api_key_env_var)
+        provider = config.provider.value if isinstance(config.provider, LLMProvider) else config.provider
         if not key:
             logger.warning(
                 "api_key_env_var_not_set",
                 env_var=config.api_key_env_var,
-                provider=config.provider.value,
+                provider=provider,
             )
             return "mock-key"
         return key
